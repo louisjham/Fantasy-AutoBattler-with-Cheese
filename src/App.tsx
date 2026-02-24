@@ -8,6 +8,7 @@ import { useGameStore } from './store';
 import { PlayerArchetype } from './types';
 import Battle from './components/Battle/Battle';
 import ArchetypeSelect from './screens/ArchetypeSelect';
+import NodeMap from './screens/NodeMap';
 
 type Screen = 
   | 'MainMenu' 
@@ -79,14 +80,7 @@ export default function App() {
           )}
 
           {currentScreen === 'NodeMap' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-2xl font-bold">Floor Map</h2>
-              <div className="flex justify-center gap-4">
-                <button onClick={() => handleNodeSelect('combat')} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg">Combat Node</button>
-                <button onClick={() => handleNodeSelect('elite')} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg border border-orange-900/50 text-orange-400">Elite Node</button>
-                <button onClick={() => handleNodeSelect('shop')} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-yellow-400">Shop Node</button>
-              </div>
-            </div>
+            <NodeMap onNodeSelect={handleNodeSelect} />
           )}
 
           {currentScreen === 'PreBattleConjure' && (

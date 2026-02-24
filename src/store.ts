@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool } from './types';
+import { generateFloor } from './systems/ProceduralGen';
 
 interface GameState extends RunState {
   maxHeroSlots: number;
@@ -11,6 +12,9 @@ interface GameState extends RunState {
   advanceFloor: () => void;
   updateUnit: (unit: Unit) => void;
   endRun: () => void;
+  completeNode: (nodeId: string) => void;
+  setCurrentNode: (nodeId: string) => void;
+  initializeRun: () => void;
 }
 
 const initialRunState: RunState = {
@@ -100,6 +104,8 @@ export const useGameStore = create<GameState>((set) => ({
       };
     }
 
+    const map = generateFloor(1, Math.random);
+
     return {
       archetype,
       maxHeroSlots,
@@ -107,7 +113,9 @@ export const useGameStore = create<GameState>((set) => ({
       spellbook: startingSpell ? [startingSpell] : [],
       perkList: startingPerk ? [startingPerk] : [],
       gold: 50,
-      floor: 1
+      floor: 1,
+      currentNodeMap: map,
+      currentNodeIndex: 0
     };
   }),
 
@@ -123,9 +131,15 @@ export const useGameStore = create<GameState>((set) => ({
     summonRoster: [...state.summonRoster, summon]
   })),
 
-  advanceFloor: () => set((state) => ({
-    floor: state.floor + 1
-  })),
+  advanceFloor: () => set((state) => {
+    const nextFloor = state.floor + 1;
+    const map = generateFloor(nextFloor, Math.random);
+    return {
+      floor: nextFloor,
+      currentNodeMap: map,
+      currentNodeIndex: 0
+    };
+  }),
 
   updateUnit: (updatedUnit) => set((state) => {
     if (updatedUnit.isHero) {
@@ -137,6 +151,35 @@ export const useGameStore = create<GameState>((set) => ({
         summonRoster: state.summonRoster.map(s => s.id === updatedUnit.id ? updatedUnit : s)
       };
     }
+  }),
+
+  completeNode: (nodeId) => set((state) => {
+    const nodeIndex = state.currentNodeMap.findIndex(n => n.id === nodeId);
+    if (nodeIndex === -1) return state;
+    
+    const node = state.currentNodeMap[nodeIndex];
+    const newMap = [...state.currentNodeMap];
+    newMap[nodeIndex] = { ...node, completed: true };
+    
+    return {
+      currentNodeMap: newMap,
+      gold: state.gold + (node.goldReward || 0)
+    };
+  }),
+
+  setCurrentNode: (nodeId) => set((state) => {
+    const index = state.currentNodeMap.findIndex(n => n.id === nodeId);
+    return { currentNodeIndex: index };
+  }),
+
+  initializeRun: () => set((state) => {
+    const map = generateFloor(1, Math.random);
+    return {
+      currentNodeMap: map,
+      currentNodeIndex: 0,
+      floor: 1,
+      gold: 50
+    };
   }),
 
   endRun: () => set({ ...initialRunState, maxHeroSlots: 3, maxSummonSlots: 3 })

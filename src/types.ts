@@ -140,6 +140,9 @@ export interface FloorNode {
   rewards: (Weapon | Armor | Spell | Perk | Consumable)[];
   completed: boolean;
   id: string;
+  biome?: string;
+  nextNodes?: string[];
+  goldReward?: number;
 }
 
 // ============================================================
