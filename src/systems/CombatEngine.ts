@@ -37,14 +37,15 @@ export class CombatEngine {
     globalEventBus.on('spell:cast', this.handleSpellCast);
   }
 
-  private handleSpellCast = (payload: any) => {
+  private handleSpellCast = (payload: unknown) => {
+    const spellPayload = payload as { spell?: { manaCost?: number } };
     const arcaneSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Arcane);
     if (arcaneSynergy && arcaneSynergy.tier >= 3) {
       if (Math.random() < 0.3) {
         globalEventBus.emit('synergy:trigger', { school: MagicSchool.Arcane });
         // Refund mana
-        if (payload.spell && payload.spell.manaCost) {
-          globalEventBus.emit('player:mana_gain', { amount: payload.spell.manaCost });
+        if (spellPayload.spell && spellPayload.spell.manaCost) {
+          globalEventBus.emit('player:mana_gain', { amount: spellPayload.spell.manaCost });
         }
       }
     }
@@ -321,5 +322,40 @@ export class CombatEngine {
   addSummon(unit: Unit) {
     this.playerUnits.push({ ...unit, stats: { ...unit.stats } });
     globalEventBus.emit('unit:spawned', { unit });
+  }
+
+  spawnSummonFromBar(summon: Unit) {
+    // Find empty positions
+    const occupiedPositions = new Set(this.playerUnits.map(u => u.position));
+    
+    // Priority: Back row (1,2,3), then Mid row (4,5,6), then Front row (7,8,9)
+    const prioritySlots = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let targetSlot = -1;
+    
+    for (const slot of prioritySlots) {
+      if (!occupiedPositions.has(slot)) {
+        targetSlot = slot;
+        break;
+      }
+    }
+
+    if (targetSlot === -1) return; // Field full
+
+    // Calculate coordinates
+    const row = Math.floor((targetSlot - 1) / 3);
+    const col = (targetSlot - 1) % 3;
+    const x = -12 + (row * 4);
+    const z = (col - 1) * 4;
+
+    const newSummon: Unit = {
+      ...summon,
+      id: `${summon.id}_${Date.now()}`,
+      position: targetSlot as any,
+      x,
+      z,
+      stats: { ...summon.stats }
+    };
+
+    this.addSummon(newSummon);
   }
 }

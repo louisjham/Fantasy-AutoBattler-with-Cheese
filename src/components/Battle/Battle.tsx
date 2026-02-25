@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Engine, Scene, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Color4, PointLight, ArcRotateCamera, DefaultRenderingPipeline, SpriteManager, Sprite } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Color4, PointLight, ArcRotateCamera, DefaultRenderingPipeline, SpriteManager, Sprite, AbstractMesh } from '@babylonjs/core';
 import { AdvancedDynamicTexture, Rectangle, Control, TextBlock } from '@babylonjs/gui';
 import { useGameStore } from '../../store';
 import { CombatEngine } from '../../systems/CombatEngine';
@@ -8,6 +8,7 @@ import { Unit, MagicSchool, Spell } from '../../types';
 import { SCHOOL_COLORS, ENEMY_SCHOOL_COLORS, MANA_REGEN } from '../../constants';
 import { createUnit } from '../../data/units';
 import SynergyHUD from '../HUD/SynergyHUD';
+import SummonBar from '../HUD/SummonBar';
 import { ActiveSynergy } from '../../systems/SynergySystem';
 
 interface BattleProps {
@@ -15,12 +16,23 @@ interface BattleProps {
   onLose: () => void;
 }
 
+export function getCoordinatesForPosition(pos: number, isEnemy: boolean = false): { x: number, z: number } {
+  const row = Math.floor((pos - 1) / 3); // 0 for 1,2,3 (Back), 1 for 4,5,6 (Mid), 2 for 7,8,9 (Front)
+  const col = (pos - 1) % 3; // 0, 1, 2
+  
+  const x = isEnemy ? 12 - (row * 4) : -12 + (row * 4);
+  const z = (col - 1) * 4;
+  return { x, z };
+}
+
 export default function Battle({ onWin, onLose }: BattleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [playerMana, setPlayerMana] = useState(0);
   const [synergies, setSynergies] = useState<ActiveSynergy[]>([]);
+  const [activeUnitCount, setActiveUnitCount] = useState(0);
+  const [onFieldIds, setOnFieldIds] = useState<Set<string>>(new Set());
   const maxPlayerMana = 100;
-  const { heroes, summonRoster, spellbook } = useGameStore();
+  const { heroes, summonRoster, spellbook, formation } = useGameStore();
   const combatEngineRef = useRef<CombatEngine | null>(null);
 
   useEffect(() => {
@@ -80,8 +92,8 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     const spriteManager = new SpriteManager('particleManager', 'https://playground.babylonjs.com/textures/player.png', 100, { width: 64, height: 64 }, scene);
 
     // Mesh Dictionary
-    const unitMeshes: Record<string, any> = {};
-    const unitUIs: Record<string, any> = {};
+    const unitMeshes: Record<string, AbstractMesh> = {};
+    const unitUIs: Record<string, { container: Rectangle, hpBar: Rectangle }> = {};
 
     const createUnitMesh = (unit: Unit) => {
       let mesh;
@@ -126,7 +138,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       unitUIs[unit.id] = { container: rect, hpBar };
     };
 
-    const showDamageNumber = (mesh: any, damage: number, isCrit: boolean, isEnemyDamage: boolean) => {
+    const showDamageNumber = (mesh: AbstractMesh, damage: number, isCrit: boolean, isEnemyDamage: boolean) => {
       const text = new TextBlock();
       text.text = damage.toString();
       text.color = isEnemyDamage ? "red" : (isCrit ? "yellow" : "white");
@@ -152,37 +164,52 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       });
     };
 
-    // Setup initial units
-    // For testing, let's create some dummy units if none exist
-    const initialHeroes = heroes.length > 0 ? heroes : [
-      createUnit('h1', 'warrior_fire', 1, true, false),
-      createUnit('h2', 'mage_arcane', 2, true, false)
-    ];
+    // Setup initial units based on formation and heroes
+    const initialHeroes = heroes.map(h => {
+      const coords = getCoordinatesForPosition(h.position);
+      return { ...h, x: coords.x, z: coords.z };
+    });
+
+    const initialSummons: Unit[] = [];
+    Object.entries(formation).forEach(([slotStr, unitId]) => {
+      if (unitId) {
+        const summon = summonRoster.find(s => s.id === unitId);
+        if (summon) {
+          const coords = getCoordinatesForPosition(parseInt(slotStr));
+          initialSummons.push({ ...summon, position: parseInt(slotStr) as any, x: coords.x, z: coords.z });
+        }
+      }
+    });
+
+    const playerUnits = [...initialHeroes, ...initialSummons];
+    setActiveUnitCount(playerUnits.length);
+    setOnFieldIds(new Set(initialSummons.map(s => s.id)));
     
     const initialEnemies = [
-      createUnit('e1', 'warrior_fire', 1, false, false),
-      createUnit('e2', 'archer_life', 2, false, false),
-      createUnit('e3', 'boss_death', 3, false, false)
-    ];
+      createUnit('e1', 'warrior_fire', 7, false, false),
+      createUnit('e2', 'archer_life', 5, false, false),
+      createUnit('e3', 'boss_death', 2, false, false)
+    ].map(e => {
+      const coords = getCoordinatesForPosition(e.position, true);
+      return { ...e, x: coords.x, z: coords.z };
+    });
 
-    // Assign initial positions
-    initialHeroes.forEach((h, i) => { h.x = -8; h.z = (i - 1) * 4; });
-    initialEnemies.forEach((e, i) => { e.x = 8; e.z = (i - 1) * 4; });
+    [...playerUnits, ...initialEnemies].forEach(createUnitMesh);
 
-    [...initialHeroes, ...initialEnemies].forEach(createUnitMesh);
-
-    combatEngineRef.current = new CombatEngine(initialHeroes, initialEnemies);
+    combatEngineRef.current = new CombatEngine(playerUnits, initialEnemies);
     combatEngineRef.current.start();
 
     // Event Listeners
-    const handleMoved = ({ unit, x, z }: any) => {
+    const handleMoved = (payload: unknown) => {
+      const { unit, x, z } = payload as { unit: Unit, x: number, z: number };
       if (unitMeshes[unit.id]) {
         unitMeshes[unit.id].position.x = x;
         unitMeshes[unit.id].position.z = z;
       }
     };
 
-    const handleAttacked = ({ attacker, target, damage }: any) => {
+    const handleAttacked = (payload: unknown) => {
+      const { attacker, target, damage } = payload as { attacker: Unit, target: Unit, damage: number };
       const attackerMesh = unitMeshes[attacker.id];
       const targetMesh = unitMeshes[target.id];
       
@@ -207,7 +234,8 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       }
     };
 
-    const handleDied = ({ unit }: any) => {
+    const handleDied = (payload: unknown) => {
+      const { unit } = payload as { unit: Unit };
       if (unitMeshes[unit.id]) {
         unitMeshes[unit.id].dispose();
         delete unitMeshes[unit.id];
@@ -217,26 +245,70 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         delete unitUIs[unit.id];
       }
 
+      if (unit.isHero || unit.isSummon) {
+        setActiveUnitCount(prev => prev - 1);
+        if (unit.isSummon) {
+          // The unit.id might have a timestamp appended if spawned from bar,
+          // but we need to remove the base ID from onFieldIds.
+          // Let's just remove the base ID.
+          const baseId = unit.id.split('_')[0] + '_' + unit.id.split('_')[1]; // e.g., summon_fire
+          setOnFieldIds(prev => {
+            const next = new Set(prev);
+            // We need to find the original summon ID.
+            // If the unit was in initialSummons, its ID is the original ID.
+            // If spawned from bar, it's originalId_timestamp.
+            // Let's just remove any ID that matches the prefix.
+            for (const id of next) {
+              if (unit.id.startsWith(id)) {
+                next.delete(id);
+                break;
+              }
+            }
+            return next;
+          });
+        }
+      }
+
       // Particle burst
       const sprite = new Sprite("death", spriteManager);
-      sprite.position = new Vector3(unit.x, 1, unit.z);
+      sprite.position = new Vector3(unit.x || 0, 1, unit.z || 0);
       sprite.playAnimation(0, 7, false, 100, () => {
         sprite.dispose();
       });
     };
 
-    const handleTick = (payload: any) => {
+    const handleTick = (payload: unknown) => {
+      const tickPayload = payload as { synergies?: ActiveSynergy[] };
       setPlayerMana(prev => Math.min(maxPlayerMana, prev + MANA_REGEN));
-      if (payload && payload.synergies) {
-        setSynergies(payload.synergies);
+      if (tickPayload && tickPayload.synergies) {
+        setSynergies(tickPayload.synergies);
       }
     };
 
-    const handleSpawned = ({ unit }: any) => {
+    const handleSpawned = (payload: unknown) => {
+      const { unit } = payload as { unit: Unit };
       createUnitMesh(unit);
+      if (unit.isHero || unit.isSummon) {
+        setActiveUnitCount(prev => prev + 1);
+        if (unit.isSummon) {
+          setOnFieldIds(prev => {
+            const next = new Set(prev);
+            // Extract base ID if it has a timestamp
+            const parts = unit.id.split('_');
+            if (parts.length >= 3 && !isNaN(Number(parts[parts.length - 1]))) {
+              parts.pop();
+              next.add(parts.join('_'));
+            } else {
+              next.add(unit.id);
+            }
+            return next;
+          });
+        }
+      }
     };
 
-    const handleManaGain = ({ amount }: any) => {
+    const handleManaGain = (payload: unknown) => {
+      const { amount } = payload as { amount: number };
       setPlayerMana(prev => Math.min(maxPlayerMana, prev + amount));
     };
 
@@ -283,15 +355,14 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     }
   };
 
-  const handleSummon = (unitTemplateId: string) => {
-    const cost = 30; // Example cost
-    if (playerMana >= cost && combatEngineRef.current) {
+  const handleSummon = (summonId: string) => {
+    const summon = summonRoster.find(s => s.id === summonId);
+    if (!summon || !combatEngineRef.current) return;
+    
+    const cost = summon.manaCost || 0;
+    if (playerMana >= cost && activeUnitCount < 9) {
       setPlayerMana(prev => prev - cost);
-      const summon = createUnit(`summon_${Date.now()}`, unitTemplateId, 1, false, true);
-      // Find nearest empty position near player side
-      summon.x = -6 + Math.random() * 4;
-      summon.z = -4 + Math.random() * 8;
-      combatEngineRef.current.addSummon(summon);
+      combatEngineRef.current.spawnSummonFromBar(summon);
     }
   };
 
@@ -308,20 +379,12 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       {/* UI Overlay */}
       <div className="absolute bottom-0 left-0 right-0 p-4 flex flex-col items-center gap-4 pointer-events-none">
         
-        {/* Summon Bar */}
-        <div className="flex gap-2 pointer-events-auto">
-          {['summon_nature', 'summon_nature', 'summon_nature'].map((templateId, i) => (
-            <button 
-              key={i}
-              onClick={() => handleSummon(templateId)}
-              disabled={playerMana < 30}
-              className="w-12 h-12 bg-zinc-800 border-2 border-zinc-600 rounded flex items-center justify-center text-xs text-white hover:border-white disabled:opacity-50 transition-colors"
-              style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '8px' }}
-            >
-              Summon<br/>(30)
-            </button>
-          ))}
-        </div>
+        <SummonBar 
+          playerMana={playerMana} 
+          onSummon={handleSummon} 
+          activeUnitCount={activeUnitCount} 
+          onFieldIds={onFieldIds}
+        />
 
         {/* Spell Bar */}
         <div className="flex gap-2 pointer-events-auto">

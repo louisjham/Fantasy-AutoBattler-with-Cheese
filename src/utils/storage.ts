@@ -1,5 +1,5 @@
 export class StorageManager {
-  static save(key: string, data: any): void {
+  static save<T>(key: string, data: T): void {
     localStorage.setItem(key, JSON.stringify(data));
   }
 

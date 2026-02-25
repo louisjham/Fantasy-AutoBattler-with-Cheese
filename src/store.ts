@@ -1,10 +1,9 @@
 import { create } from 'zustand';
-import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool } from './types';
+import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool, Weapon, Armor, InventoryItem, Consumable } from './types';
 import { generateFloor } from './systems/ProceduralGen';
+import { SUMMONS } from './data/units';
 
 interface GameState extends RunState {
-  maxHeroSlots: number;
-  maxSummonSlots: number;
   setArchetype: (archetype: PlayerArchetype) => void;
   addPerk: (perk: Perk) => void;
   addSpell: (spell: Spell) => void;
@@ -15,6 +14,14 @@ interface GameState extends RunState {
   completeNode: (nodeId: string) => void;
   setCurrentNode: (nodeId: string) => void;
   initializeRun: () => void;
+  equipWeapon: (unitId: string, weapon: Weapon) => void;
+  equipArmor: (unitId: string, armor: Armor) => void;
+  addToInventory: (item: InventoryItem) => void;
+  removeFromInventory: (itemType: string, itemId: string) => void;
+  addSummonToRoster: (summon: Unit) => void;
+  removeSummonFromRoster: (summonId: string) => void;
+  upgradeSummon: (summonId: string) => void;
+  setFormation: (slots: Record<number, string | null>) => void;
 }
 
 const initialRunState: RunState = {
@@ -31,19 +38,28 @@ const initialRunState: RunState = {
   equippedArmor: {},
   currentNodeMap: [],
   currentNodeIndex: 0,
-  runXp: 0
+  runXp: 0,
+  maxHeroSlots: 3,
+  maxSummonSlots: 3,
+  formation: {}
 };
 
 export const useGameStore = create<GameState>((set) => ({
   ...initialRunState,
-  maxHeroSlots: 3,
-  maxSummonSlots: 3,
 
-  setArchetype: (archetype) => set((state) => {
+  setArchetype: (archetype) => {
     let maxHeroSlots = 3;
     let maxSummonSlots = 3;
     let startingSpell: Spell | null = null;
     let startingPerk: Perk | null = null;
+    let heroes: Unit[] = [];
+    let summonRoster: Unit[] = [];
+
+    const getSummon = (id: string, suffix: string = '') => {
+      const base = SUMMONS.find(s => s.id === id);
+      if (!base) return null;
+      return { ...base, id: `${id}_${Date.now()}${suffix}` };
+    };
 
     if (archetype === PlayerArchetype.Conjurer) {
       maxHeroSlots = 3;
@@ -64,6 +80,19 @@ export const useGameStore = create<GameState>((set) => ({
         school: MagicSchool.Death,
         effect: 'mana_on_summon_death_5'
       };
+      heroes = [{
+        id: 'conjurer_hero', name: 'The Conjurer', school: MagicSchool.Arcane, isHero: true, isSummon: false,
+        tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 5, meshType: 'octahedron', spriteColor: '#2244FF',
+        stats: { hp: 80, maxHp: 80, attack: 12, defense: 6, speed: 1, mana: 30, maxMana: 100 }, passives: []
+      }];
+      summonRoster = [
+        getSummon('skeleton_warrior', '_1'),
+        getSummon('skeleton_warrior', '_2'),
+        getSummon('ember_imp'),
+        getSummon('thorn_sprite'),
+        getSummon('mana_familiar')
+      ].filter(Boolean) as Unit[];
+
     } else if (archetype === PlayerArchetype.Warlord) {
       maxHeroSlots = 6;
       maxSummonSlots = 3;
@@ -83,6 +112,29 @@ export const useGameStore = create<GameState>((set) => ({
         school: MagicSchool.Fire,
         effect: 'heal_on_kill_5'
       };
+      heroes = [
+        {
+          id: 'warlord_hero_1', name: 'Iron Guard', school: MagicSchool.Fire, isHero: true, isSummon: false,
+          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 7, meshType: 'box', spriteColor: '#FF4422',
+          stats: { hp: 120, maxHp: 120, attack: 18, defense: 10, speed: 1, mana: 0, maxMana: 100 }, passives: []
+        },
+        {
+          id: 'warlord_hero_2', name: 'Battle Mage', school: MagicSchool.Arcane, isHero: true, isSummon: false,
+          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 8, meshType: 'octahedron', spriteColor: '#2244FF',
+          stats: { hp: 85, maxHp: 85, attack: 15, defense: 6, speed: 2, mana: 40, maxMana: 100 }, passives: []
+        },
+        {
+          id: 'warlord_hero_3', name: 'Scout', school: MagicSchool.Nature, isHero: true, isSummon: false,
+          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 9, meshType: 'cylinder', spriteColor: '#33AA44',
+          stats: { hp: 70, maxHp: 70, attack: 16, defense: 5, speed: 3, mana: 0, maxMana: 100 }, passives: []
+        }
+      ];
+      summonRoster = [
+        getSummon('forest_wolf'),
+        getSummon('shield_bearer'),
+        getSummon('ember_imp')
+      ].filter(Boolean) as Unit[];
+
     } else if (archetype === PlayerArchetype.Mystic) {
       maxHeroSlots = 4;
       maxSummonSlots = 5;
@@ -102,22 +154,40 @@ export const useGameStore = create<GameState>((set) => ({
         school: MagicSchool.Arcane,
         effect: 'spell_echo_20'
       };
+      heroes = [
+        {
+          id: 'mystic_hero_1', name: 'The Mystic', school: MagicSchool.Arcane, isHero: true, isSummon: false,
+          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 5, meshType: 'octahedron', spriteColor: '#2244FF',
+          stats: { hp: 75, maxHp: 75, attack: 10, defense: 5, speed: 1, mana: 60, maxMana: 100 }, passives: []
+        },
+        {
+          id: 'mystic_hero_2', name: 'Apprentice', school: MagicSchool.Life, isHero: true, isSummon: false,
+          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 6, meshType: 'cylinder', spriteColor: '#FFCC00',
+          stats: { hp: 65, maxHp: 65, attack: 9, defense: 6, speed: 2, mana: 40, maxMana: 100 }, passives: []
+        }
+      ];
+      summonRoster = [
+        getSummon('mana_familiar'),
+        getSummon('arcane_turret'),
+        getSummon('acolyte'),
+        getSummon('celestial_wisp'),
+        getSummon('thorn_sprite')
+      ].filter(Boolean) as Unit[];
     }
-
-    const map = generateFloor(1, Math.random);
-
-    return {
+    
+    set({
       archetype,
       maxHeroSlots,
       maxSummonSlots,
+      heroes,
+      summonRoster,
       spellbook: startingSpell ? [startingSpell] : [],
-      perkList: startingPerk ? [startingPerk] : [],
-      gold: 50,
-      floor: 1,
-      currentNodeMap: map,
-      currentNodeIndex: 0
-    };
-  }),
+      perkList: startingPerk ? [startingPerk] : []
+    });
+
+    // Call initializeRun to set up the map and other initial state
+    useGameStore.getState().initializeRun();
+  },
 
   addPerk: (perk) => set((state) => ({
     perkList: [...state.perkList, perk]
@@ -161,9 +231,37 @@ export const useGameStore = create<GameState>((set) => ({
     const newMap = [...state.currentNodeMap];
     newMap[nodeIndex] = { ...node, completed: true };
     
+    let newInventory = [...state.inventory];
+    
+    // Add rewards to inventory
+    if (node.rewards) {
+      node.rewards.forEach(reward => {
+        // We need to determine the type of the reward
+        let type: 'weapon' | 'armor' | 'consumable' | 'spell' | 'perk' = 'consumable';
+        if ('attackBonus' in reward) type = 'weapon';
+        else if ('defenseBonus' in reward) type = 'armor';
+        else if ('manaCost' in reward) type = 'spell';
+        else if ('school' in reward && !('manaCost' in reward) && !('attackBonus' in reward) && !('defenseBonus' in reward)) type = 'perk';
+        
+        if (type === 'weapon' || type === 'armor' || type === 'consumable') {
+          const existing = newInventory.find(i => i.item.id === reward.id && i.type === type);
+          if (existing) {
+            newInventory = newInventory.map(i => 
+              i.item.id === reward.id && i.type === type 
+                ? { ...i, quantity: i.quantity + 1 } 
+                : i
+            );
+          } else {
+            newInventory.push({ type, item: reward as Weapon | Armor | Consumable, quantity: 1 });
+          }
+        }
+      });
+    }
+    
     return {
       currentNodeMap: newMap,
-      gold: state.gold + (node.goldReward || 0)
+      gold: state.gold + (node.goldReward || 0),
+      inventory: newInventory
     };
   }),
 
@@ -182,5 +280,97 @@ export const useGameStore = create<GameState>((set) => ({
     };
   }),
 
-  endRun: () => set({ ...initialRunState, maxHeroSlots: 3, maxSummonSlots: 3 })
+  equipWeapon: (unitId, weapon) => set((state) => ({
+    equippedWeapons: { ...state.equippedWeapons, [unitId]: weapon }
+  })),
+
+  equipArmor: (unitId, armor) => set((state) => ({
+    equippedArmor: { ...state.equippedArmor, [unitId]: armor }
+  })),
+
+  addToInventory: (item) => set((state) => {
+    const existing = state.inventory.find(i => i.item.id === item.item.id && i.type === item.type);
+    if (existing) {
+      return {
+        inventory: state.inventory.map(i => 
+          i.item.id === item.item.id && i.type === item.type 
+            ? { ...i, quantity: i.quantity + item.quantity } 
+            : i
+        )
+      };
+    }
+    return { inventory: [...state.inventory, item] };
+  }),
+
+  removeFromInventory: (itemType, itemId) => set((state) => {
+    const existing = state.inventory.find(i => i.item.id === itemId && i.type === itemType);
+    if (existing && existing.quantity > 1) {
+      return {
+        inventory: state.inventory.map(i => 
+          i.item.id === itemId && i.type === itemType 
+            ? { ...i, quantity: i.quantity - 1 } 
+            : i
+        )
+      };
+    }
+    return {
+      inventory: state.inventory.filter(i => !(i.item.id === itemId && i.type === itemType))
+    };
+  }),
+
+  addSummonToRoster: (summon) => set((state) => ({
+    summonRoster: [...state.summonRoster, summon]
+  })),
+
+  removeSummonFromRoster: (summonId) => set((state) => ({
+    summonRoster: state.summonRoster.filter(s => s.id !== summonId)
+  })),
+
+  upgradeSummon: (summonId) => set((state) => {
+    return {
+      summonRoster: state.summonRoster.map(summon => {
+        if (summon.id !== summonId || summon.tier >= 4) return summon;
+
+        const newTier = (summon.tier + 1) as 1 | 2 | 3 | 4;
+        const newStats = { ...summon.stats };
+        let newPassives = [...summon.passives];
+
+        if (newTier === 2) {
+          Object.keys(newStats).forEach(key => {
+            const k = key as keyof typeof newStats;
+            if (k !== 'mana' && k !== 'maxMana') {
+              newStats[k] = Math.floor(newStats[k] * 1.25);
+            }
+          });
+          // Passive is already unlocked, but we can just say it's there.
+        } else if (newTier === 3) {
+          Object.keys(newStats).forEach(key => {
+            const k = key as keyof typeof newStats;
+            if (k !== 'mana' && k !== 'maxMana') {
+              newStats[k] = Math.floor(newStats[k] * 1.25);
+            }
+          });
+          newPassives = newPassives.map(p => ({ ...p, value: Math.floor(p.value * 1.5) }));
+        } else if (newTier === 4) {
+          Object.keys(newStats).forEach(key => {
+            const k = key as keyof typeof newStats;
+            if (k !== 'mana' && k !== 'maxMana') {
+              newStats[k] = Math.floor(newStats[k] * 1.5);
+            }
+          });
+        }
+
+        return {
+          ...summon,
+          tier: newTier,
+          stats: newStats,
+          passives: newPassives
+        };
+      })
+    };
+  }),
+
+  setFormation: (slots) => set({ formation: slots }),
+
+  endRun: () => set({ ...initialRunState })
 }));

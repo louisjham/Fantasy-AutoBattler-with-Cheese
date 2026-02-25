@@ -9,6 +9,8 @@ import { PlayerArchetype } from './types';
 import Battle from './components/Battle/Battle';
 import ArchetypeSelect from './screens/ArchetypeSelect';
 import NodeMap from './screens/NodeMap';
+import EventScreen from './screens/EventScreen';
+import PreBattleConjure from './screens/PreBattleConjure';
 
 type Screen = 
   | 'MainMenu' 
@@ -18,6 +20,7 @@ type Screen =
   | 'Battle' 
   | 'PostBattle' 
   | 'Shop' 
+  | 'Event'
   | 'GameOver' 
   | 'Victory';
 
@@ -33,6 +36,7 @@ export default function App() {
 
   const handleNodeSelect = (type: string) => {
     if (type === 'shop') setCurrentScreen('Shop');
+    else if (type === 'event') setCurrentScreen('Event');
     else setCurrentScreen('PreBattleConjure');
   };
 
@@ -84,15 +88,7 @@ export default function App() {
           )}
 
           {currentScreen === 'PreBattleConjure' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-2xl font-bold">Pre-Battle: Conjure & Position</h2>
-              <div className="w-64 h-64 border-2 border-dashed border-zinc-700 rounded-xl mx-auto flex items-center justify-center text-zinc-500">
-                Grid Placeholder
-              </div>
-              <button onClick={handleStartBattle} className="px-6 py-3 bg-red-900/50 hover:bg-red-900 text-red-200 rounded-lg font-medium transition-colors border border-red-800">
-                Start Battle
-              </button>
-            </div>
+            <PreBattleConjure onStartBattle={handleStartBattle} />
           )}
 
           {currentScreen === 'Battle' && (
@@ -121,6 +117,10 @@ export default function App() {
               <p className="text-zinc-400">Buy perks, spells, and summons here.</p>
               <button onClick={handleContinue} className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium">Leave Shop</button>
             </div>
+          )}
+
+          {currentScreen === 'Event' && (
+            <EventScreen onComplete={handleContinue} />
           )}
 
           {currentScreen === 'GameOver' && (

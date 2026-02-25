@@ -1,4 +1,4 @@
-export type EventCallback = (payload: any) => void;
+export type EventCallback = (payload: unknown) => void;
 
 export class EventBus {
   private listeners: Record<string, EventCallback[]> = {};
@@ -16,7 +16,7 @@ export class EventBus {
     this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
   }
 
-  emit(event: string, payload: any, eventId?: string): void {
+  emit(event: string, payload: unknown, eventId?: string): void {
     // Prevent infinite passive loops by checking if this specific event instance has been processed
     if (eventId) {
       if (this.processedEvents.has(eventId)) {

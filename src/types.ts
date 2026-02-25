@@ -113,6 +113,7 @@ export interface Unit {
   level: number;
   xp: number;
   subclass: string | null;
+  manaCost?: number;
 }
 
 export interface Spell {
@@ -164,5 +165,8 @@ export interface RunState {
   currentNodeMap: FloorNode[];
   currentNodeIndex: number;
   runXp: number;
+  maxHeroSlots: number;
+  maxSummonSlots: number;
+  formation: Record<number, string | null>;
 }
 

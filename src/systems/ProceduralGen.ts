@@ -69,7 +69,7 @@ export function generateFloor(floor: number, rng: () => number): FloorNode[] {
               maxMana: baseStats.maxMana
             },
             passives: [],
-            position: (e + 1) as any,
+            position: (e + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
             isHero: false,
             isSummon: false,
             spriteColor: school,
