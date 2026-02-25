@@ -11,17 +11,18 @@ import ArchetypeSelect from './screens/ArchetypeSelect';
 import NodeMap from './screens/NodeMap';
 import EventScreen from './screens/EventScreen';
 import PreBattleConjure from './screens/PreBattleConjure';
+import TitleScreen from './screens/TitleScreen';
 
-type Screen = 
-  | 'MainMenu' 
-  | 'ArchetypeSelect' 
-  | 'NodeMap' 
-  | 'PreBattleConjure' 
-  | 'Battle' 
-  | 'PostBattle' 
-  | 'Shop' 
+type Screen =
+  | 'MainMenu'
+  | 'ArchetypeSelect'
+  | 'NodeMap'
+  | 'PreBattleConjure'
+  | 'Battle'
+  | 'PostBattle'
+  | 'Shop'
   | 'Event'
-  | 'GameOver' 
+  | 'GameOver'
   | 'Victory';
 
 export default function App() {
@@ -29,7 +30,7 @@ export default function App() {
   const { archetype, endRun } = useGameStore();
 
   const handleStartRun = () => setCurrentScreen('ArchetypeSelect');
-  
+
   const handleSelectArchetype = () => {
     setCurrentScreen('NodeMap');
   };
@@ -44,7 +45,7 @@ export default function App() {
   const handleBattleWin = () => setCurrentScreen('PostBattle');
   const handleBattleLose = () => setCurrentScreen('GameOver');
   const handleBossWin = () => setCurrentScreen('Victory');
-  
+
   const handleContinue = () => setCurrentScreen('NodeMap');
   const handleRestart = () => {
     endRun();
@@ -54,10 +55,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-4 font-sans">
       <div className="w-full max-w-5xl bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden min-h-[600px] flex flex-col relative">
-        
+
         {/* Header */}
         <header className="bg-zinc-950 border-b border-zinc-800 p-4 flex justify-between items-center text-sm text-zinc-400">
-          <div>The Shattered Codex</div>
+          <div>The Last Fantasy</div>
           <div className="flex gap-4">
             {archetype && <span>Archetype: <span className="text-indigo-400">{archetype}</span></span>}
             <span>Screen: <span className="text-emerald-400">{currentScreen}</span></span>
@@ -65,18 +66,9 @@ export default function App() {
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 flex flex-col items-center justify-center p-0">
+        <main className="flex-1 flex flex-col items-center justify-center p-0 relative h-full">
           {currentScreen === 'MainMenu' && (
-            <div className="text-center space-y-6 p-8">
-              <h1 className="text-4xl font-bold tracking-tight text-white">The Shattered Codex</h1>
-              <p className="text-zinc-400 max-w-md mx-auto">Summon. Bind. Reclaim.</p>
-              <button 
-                onClick={handleStartRun}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-colors"
-              >
-                Start New Run
-              </button>
-            </div>
+            <TitleScreen onStart={handleStartRun} />
           )}
 
           {currentScreen === 'ArchetypeSelect' && (
