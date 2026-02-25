@@ -70,7 +70,7 @@ export class CombatEngine {
     if (!this.isRunning) return;
 
     const allUnits = [...this.playerUnits, ...this.enemyUnits];
-    
+
     // Apply Nature Tier 1
     const natureSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Nature);
     if (natureSynergy && natureSynergy.tier >= 1) {
@@ -140,7 +140,7 @@ export class CombatEngine {
         // Attack
         const damage = Math.max(1, unit.stats.attack - target.stats.defense);
         target.stats.hp -= damage;
-        
+
         // Mana gains
         unit.stats.mana = Math.min(unit.stats.maxMana, unit.stats.mana + manaRegen);
         target.stats.mana = Math.min(target.stats.maxMana, target.stats.mana + 5);
@@ -159,7 +159,7 @@ export class CombatEngine {
                 duration: 3,
                 sourceUnitId: unit.id
               });
-              
+
               if (fireSynergy.tier >= 2) {
                 // Spread to adjacent enemy
                 const adjacent = aliveEnemies.find(e => e.id !== target.id && Math.sqrt(Math.pow((e.x || 0) - (target.x || 0), 2) + Math.pow((e.z || 0) - (target.z || 0), 2)) <= 3.0);
@@ -184,7 +184,7 @@ export class CombatEngine {
         const dx = (target.x || 0) - (unit.x || 0);
         const dz = (target.z || 0) - (unit.z || 0);
         const len = Math.sqrt(dx * dx + dz * dz);
-        
+
         const moveDist = Math.min(0.3, len);
         unit.x = (unit.x || 0) + (dx / len) * moveDist;
         unit.z = (unit.z || 0) + (dz / len) * moveDist;
@@ -216,7 +216,7 @@ export class CombatEngine {
 
   private handleUnitDeath(unit: Unit, killerId: string) {
     const isPlayer = unit.isHero || unit.isSummon;
-    
+
     // Life tier 3: Last Life unit cannot die below 1 HP
     if (isPlayer && unit.school === MagicSchool.Life) {
       const lifeSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Life);
@@ -327,13 +327,13 @@ export class CombatEngine {
   spawnSummonFromBar(summon: Unit) {
     // Find empty positions
     const occupiedPositions = new Set(this.playerUnits.map(u => u.position));
-    
+
     // Priority: Back row (1,2,3), then Mid row (4,5,6), then Front row (7,8,9)
     const prioritySlots = [1, 2, 3, 4, 5, 6, 7, 8, 9];
     let targetSlot = -1;
-    
+
     for (const slot of prioritySlots) {
-      if (!occupiedPositions.has(slot)) {
+      if (!occupiedPositions.has(slot as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9)) {
         targetSlot = slot;
         break;
       }

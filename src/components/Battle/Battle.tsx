@@ -19,7 +19,7 @@ interface BattleProps {
 export function getCoordinatesForPosition(pos: number, isEnemy: boolean = false): { x: number, z: number } {
   const row = Math.floor((pos - 1) / 3); // 0 for 1,2,3 (Back), 1 for 4,5,6 (Mid), 2 for 7,8,9 (Front)
   const col = (pos - 1) % 3; // 0, 1, 2
-  
+
   const x = isEnemy ? 12 - (row * 4) : -12 + (row * 4);
   const z = (col - 1) * 4;
   return { x, z };
@@ -81,7 +81,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     pipeline.imageProcessing.vignetteEnabled = true;
     pipeline.imageProcessing.vignetteWeight = 2;
     pipeline.imageProcessing.vignetteColor = new Color4(0, 0, 0, 1);
-    
+
     // Pixelation (render at 35% res)
     engine.setHardwareScalingLevel(1 / 0.35);
 
@@ -105,9 +105,9 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         case 'boss': mesh = MeshBuilder.CreateTorusKnot(unit.id, { radius: 1, tube: 0.4 }, scene); break;
         default: mesh = MeshBuilder.CreateBox(unit.id, { size: 1.5 }, scene);
       }
-      
+
       mesh.position = new Vector3(unit.x || 0, 1, unit.z || 0);
-      
+
       const mat = new StandardMaterial(`${unit.id}_mat`, scene);
       const hexColor = unit.isHero || unit.isSummon ? SCHOOL_COLORS[unit.school] : ENEMY_SCHOOL_COLORS[unit.school];
       mat.diffuseColor = Color3.FromHexString(hexColor);
@@ -184,7 +184,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     const playerUnits = [...initialHeroes, ...initialSummons];
     setActiveUnitCount(playerUnits.length);
     setOnFieldIds(new Set(initialSummons.map(s => s.id)));
-    
+
     const initialEnemies = [
       createUnit('e1', 'warrior_fire', 7, false, false),
       createUnit('e2', 'archer_life', 5, false, false),
@@ -212,7 +212,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       const { attacker, target, damage } = payload as { attacker: Unit, target: Unit, damage: number };
       const attackerMesh = unitMeshes[attacker.id];
       const targetMesh = unitMeshes[target.id];
-      
+
       if (attackerMesh) {
         // Attack animation: quick scale pulse
         const originalScale = attackerMesh.scaling.clone();
@@ -258,7 +258,8 @@ export default function Battle({ onWin, onLose }: BattleProps) {
             // If the unit was in initialSummons, its ID is the original ID.
             // If spawned from bar, it's originalId_timestamp.
             // Let's just remove any ID that matches the prefix.
-            for (const id of next) {
+            for (const idValue of next) {
+              const id = idValue as string;
               if (unit.id.startsWith(id)) {
                 next.delete(id);
                 break;
@@ -338,7 +339,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       globalEventBus.off('player:mana_gain', handleManaGain);
       globalEventBus.off('battle:won', onWin);
       globalEventBus.off('battle:lost', onLose);
-      
+
       if (combatEngineRef.current) {
         combatEngineRef.current.stop();
       }
@@ -358,7 +359,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
   const handleSummon = (summonId: string) => {
     const summon = summonRoster.find(s => s.id === summonId);
     if (!summon || !combatEngineRef.current) return;
-    
+
     const cost = summon.manaCost || 0;
     if (playerMana >= cost && activeUnitCount < 9) {
       setPlayerMana(prev => prev - cost);
@@ -371,18 +372,18 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       <div className="absolute top-4 left-4 z-10 font-mono text-white text-xl drop-shadow-md">
         Player Mana: {playerMana} / {maxPlayerMana}
       </div>
-      
+
       <SynergyHUD synergies={synergies} />
 
       <canvas ref={canvasRef} className="w-full h-full outline-none flex-1" />
 
       {/* UI Overlay */}
       <div className="absolute bottom-0 left-0 right-0 p-4 flex flex-col items-center gap-4 pointer-events-none">
-        
-        <SummonBar 
-          playerMana={playerMana} 
-          onSummon={handleSummon} 
-          activeUnitCount={activeUnitCount} 
+
+        <SummonBar
+          playerMana={playerMana}
+          onSummon={handleSummon}
+          activeUnitCount={activeUnitCount}
           onFieldIds={onFieldIds}
         />
 
