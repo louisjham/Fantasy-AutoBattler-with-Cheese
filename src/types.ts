@@ -144,11 +144,23 @@ export interface FloorNode {
   biome?: string;
   nextNodes?: string[];
   goldReward?: number;
+  bossSpecialMechanic?: string;
 }
 
 // ============================================================
 // RUN STATE
 // ============================================================
+
+export interface RunStats {
+  enemiesDefeated: number;
+  damageDealt: number;
+  spellsCast: number;
+  summonDeployments: Record<string, number>;
+  perkHistory: string[];
+  floorsCleared: number;
+  mostUsedSchool: MagicSchool | null;
+  favoriteSummon: string | null;
+}
 
 export interface RunState {
   archetype: PlayerArchetype | null;
@@ -168,5 +180,6 @@ export interface RunState {
   maxHeroSlots: number;
   maxSummonSlots: number;
   formation: Record<number, string | null>;
+  runStats: RunStats;
 }
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool, Weapon, Armor, InventoryItem, Consumable } from './types';
+import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool, Weapon, Armor, InventoryItem, Consumable, RunStats } from './types';
 import { generateFloor } from './systems/ProceduralGen';
 import { SUMMONS } from './data/units';
 
@@ -10,7 +10,8 @@ interface GameState extends RunState {
   addSummon: (summon: Unit) => void;
   advanceFloor: () => void;
   updateUnit: (unit: Unit) => void;
-  endRun: () => void;
+  endRun: (won: boolean) => void;
+  updateRunStats: (partial: Partial<RunStats>) => void;
   completeNode: (nodeId: string) => void;
   setCurrentNode: (nodeId: string) => void;
   initializeRun: () => void;
@@ -41,7 +42,12 @@ const initialRunState: RunState = {
   runXp: 0,
   maxHeroSlots: 3,
   maxSummonSlots: 3,
-  formation: {}
+  formation: {},
+  runStats: {
+    enemiesDefeated: 0, damageDealt: 0, spellsCast: 0,
+    summonDeployments: {}, perkHistory: [],
+    floorsCleared: 0, mostUsedSchool: null, favoriteSummon: null
+  }
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -174,7 +180,7 @@ export const useGameStore = create<GameState>((set) => ({
         getSummon('thorn_sprite')
       ].filter(Boolean) as Unit[];
     }
-    
+
     set({
       archetype,
       maxHeroSlots,
@@ -226,13 +232,13 @@ export const useGameStore = create<GameState>((set) => ({
   completeNode: (nodeId) => set((state) => {
     const nodeIndex = state.currentNodeMap.findIndex(n => n.id === nodeId);
     if (nodeIndex === -1) return state;
-    
+
     const node = state.currentNodeMap[nodeIndex];
     const newMap = [...state.currentNodeMap];
     newMap[nodeIndex] = { ...node, completed: true };
-    
+
     let newInventory = [...state.inventory];
-    
+
     // Add rewards to inventory
     if (node.rewards) {
       node.rewards.forEach(reward => {
@@ -242,13 +248,13 @@ export const useGameStore = create<GameState>((set) => ({
         else if ('defenseBonus' in reward) type = 'armor';
         else if ('manaCost' in reward) type = 'spell';
         else if ('school' in reward && !('manaCost' in reward) && !('attackBonus' in reward) && !('defenseBonus' in reward)) type = 'perk';
-        
+
         if (type === 'weapon' || type === 'armor' || type === 'consumable') {
           const existing = newInventory.find(i => i.item.id === reward.id && i.type === type);
           if (existing) {
-            newInventory = newInventory.map(i => 
-              i.item.id === reward.id && i.type === type 
-                ? { ...i, quantity: i.quantity + 1 } 
+            newInventory = newInventory.map(i =>
+              i.item.id === reward.id && i.type === type
+                ? { ...i, quantity: i.quantity + 1 }
                 : i
             );
           } else {
@@ -257,7 +263,7 @@ export const useGameStore = create<GameState>((set) => ({
         }
       });
     }
-    
+
     return {
       currentNodeMap: newMap,
       gold: state.gold + (node.goldReward || 0),
@@ -292,9 +298,9 @@ export const useGameStore = create<GameState>((set) => ({
     const existing = state.inventory.find(i => i.item.id === item.item.id && i.type === item.type);
     if (existing) {
       return {
-        inventory: state.inventory.map(i => 
-          i.item.id === item.item.id && i.type === item.type 
-            ? { ...i, quantity: i.quantity + item.quantity } 
+        inventory: state.inventory.map(i =>
+          i.item.id === item.item.id && i.type === item.type
+            ? { ...i, quantity: i.quantity + item.quantity }
             : i
         )
       };
@@ -306,9 +312,9 @@ export const useGameStore = create<GameState>((set) => ({
     const existing = state.inventory.find(i => i.item.id === itemId && i.type === itemType);
     if (existing && existing.quantity > 1) {
       return {
-        inventory: state.inventory.map(i => 
-          i.item.id === itemId && i.type === itemType 
-            ? { ...i, quantity: i.quantity - 1 } 
+        inventory: state.inventory.map(i =>
+          i.item.id === itemId && i.type === itemType
+            ? { ...i, quantity: i.quantity - 1 }
             : i
         )
       };
@@ -372,5 +378,15 @@ export const useGameStore = create<GameState>((set) => ({
 
   setFormation: (slots) => set({ formation: slots }),
 
-  endRun: () => set({ ...initialRunState })
+  updateRunStats: (partial) => set((state) => ({
+    runStats: { ...state.runStats, ...partial }
+  })),
+
+  endRun: (won) => set((state) => {
+    // Basic meta XP calc logic (mock storage in production would handle actual saving)
+    const xp = (state.runStats.floorsCleared * 50) + (state.runStats.enemiesDefeated * 5) + (state.runStats.perkHistory.length * 10) + (won ? 500 : 0);
+    console.log(`Earned ${xp} Meta XP (Won: ${won})`);
+    // NOTE: Keep metaUnlocks for the persistent state.
+    return { ...initialRunState, metaUnlocks: state.metaUnlocks };
+  })
 }));

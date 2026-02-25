@@ -38,14 +38,14 @@ export const ARMORS: Armor[] = [
     { id: 'ember_shield', name: 'Ember Shield', school: MagicSchool.Fire, defenseBonus: 6, hpBonus: 15, tier: 1, passive: null, description: '+6 DEF, +15 HP' },
     { id: 'bark_armor', name: 'Bark Armor', school: MagicSchool.Nature, defenseBonus: 5, hpBonus: 25, tier: 1, passive: { trigger: 'on_tick', effect: 'regen_hp', value: 3 }, description: '+5 DEF, +25 HP, regen 3 HP per tick' },
     { id: 'mana_weave', name: 'Mana Weave', school: MagicSchool.Arcane, defenseBonus: 4, hpBonus: 10, tier: 1, passive: { trigger: 'battle_start', effect: 'bonus_mana', value: 25 }, description: '+4 DEF, +10 HP, start battle with 25 extra mana' },
-    { id: 'holy_vestments', name: 'Holy Vestments', school: MagicSchool.Life, defenseBonus: 7, hpBonus: 20, tier: 1, passive: { trigger: 'on_heal', effect: 'heal_bonus', value: 5 }, description: '+7 DEF, +20 HP, all heals +5' },
+    { id: 'holy_vestments', name: 'Holy Vestments', school: MagicSchool.Life, defenseBonus: 7, hpBonus: 20, tier: 1, passive: { trigger: 'on_cast', effect: 'heal_bonus', value: 5 }, description: '+7 DEF, +20 HP, all heals +5' },
 
     // TIER 2 ARMOR
     { id: 'shadow_cloak', name: 'Shadow Cloak', school: MagicSchool.Death, defenseBonus: 12, hpBonus: 35, tier: 2, passive: { trigger: 'battle_start', effect: 'first_hit_block', value: 1 }, description: '+12 DEF, +35 HP, block first hit' },
     { id: 'dragon_scale', name: 'Dragon Scale', school: MagicSchool.Fire, defenseBonus: 14, hpBonus: 30, tier: 2, passive: { trigger: 'on_damaged', effect: 'fire_retaliation', value: 8 }, description: '+14 DEF, +30 HP, deal 8 fire dmg when hit' },
     { id: 'ironbark', name: 'Ironbark', school: MagicSchool.Nature, defenseBonus: 16, hpBonus: 40, tier: 2, passive: { trigger: 'on_tick', effect: 'regen_hp', value: 6 }, description: '+16 DEF, +40 HP, regen 6 HP per tick' },
     { id: 'arcane_lattice', name: 'Arcane Lattice', school: MagicSchool.Arcane, defenseBonus: 10, hpBonus: 25, tier: 2, passive: { trigger: 'on_cast', effect: 'damage_shield', value: 15 }, description: '+10 DEF, +25 HP, gain 15 shield on spell cast' },
-    { id: 'radiant_plate', name: 'Radiant Plate', school: MagicSchool.Life, defenseBonus: 15, hpBonus: 45, tier: 2, passive: { trigger: 'on_heal', effect: 'attack_bonus_temp', value: 8 }, description: '+15 DEF, +45 HP, gain +8 ATK when healed' },
+    { id: 'radiant_plate', name: 'Radiant Plate', school: MagicSchool.Life, defenseBonus: 15, hpBonus: 45, tier: 2, passive: { trigger: 'on_cast', effect: 'attack_bonus_temp', value: 8 }, description: '+15 DEF, +45 HP, gain +8 ATK when healed' },
 
     // TIER 3 ARMOR
     { id: 'void_carapace', name: 'Void Carapace', school: MagicSchool.Arcane, defenseBonus: 22, hpBonus: 60, tier: 3, passive: { trigger: 'on_damaged', effect: 'mana_gain', value: 5 }, description: '+22 DEF, +60 HP, gain 5 mana when hit' },
