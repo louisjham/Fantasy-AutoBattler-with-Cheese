@@ -1,4 +1,5 @@
 import { FloorNode, MagicSchool, NodeType, Unit } from '../types';
+import { BOSSES } from '../data/bosses';
 
 const BIOMES = [
   { name: "The Ashen Wastes", school: MagicSchool.Fire },
@@ -33,58 +34,73 @@ export function generateFloor(floor: number, rng: () => number): FloorNode[] {
       }
 
       const id = `floor${floor}_node${d}_${i}`;
-      
+
       // Enemies
       const enemies: Unit[] = [];
       let goldReward = 0;
-      
+      let bossSpecialMechanic: string | undefined;
+
       if (type === 'combat' || type === 'elite' || type === 'boss') {
-        const school = rng() < 0.7 ? biome.school : Object.values(MagicSchool)[Math.floor(rng() * 5)];
-        const baseCount = 2 + Math.floor(d / 4);
-        const count = type === 'elite' ? baseCount + 1 : (type === 'boss' ? 3 : baseCount);
-        
-        for (let e = 0; e < count; e++) {
-          const isBoss = type === 'boss' && e === 0;
-          const isMinion = type === 'boss' && e > 0;
-          
-          let statMult = (1 + (floor - 1) * 0.3) * (1 + d * 0.08);
-          if (type === 'elite') statMult *= 1.4;
-          if (isBoss) statMult *= 2.5;
-          if (isMinion) statMult *= 1.2;
-
-          const baseStats = { hp: 50, maxHp: 50, attack: 10, defense: 2, speed: 1, mana: 0, maxMana: 50 };
-          
+        if (type === 'boss') {
+          const bossDef = BOSSES[floor] || BOSSES[5];
           enemies.push({
-            id: `${id}_enemy${e}`,
-            name: isBoss ? `${school} Boss` : `${school} Grunt`,
-            school: school,
-            tier: isBoss ? 3 : (type === 'elite' ? 2 : 1),
-            stats: {
-              hp: Math.floor(baseStats.hp * statMult),
-              maxHp: Math.floor(baseStats.maxHp * statMult),
-              attack: Math.floor(baseStats.attack * statMult),
-              defense: Math.floor(baseStats.defense * statMult),
-              speed: baseStats.speed,
-              mana: baseStats.mana,
-              maxMana: baseStats.maxMana
-            },
-            passives: [],
-            position: (e + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
-            isHero: false,
-            isSummon: false,
-            spriteColor: school,
-            meshType: isBoss ? 'boss' : 'box',
-            weapon: null,
-            armor: null,
-            level: floor,
-            xp: 0,
-            subclass: null
+            ...bossDef.unit,
+            id: `${id}_boss`,
+            stats: { ...bossDef.unit.stats },
+            passives: [...bossDef.unit.passives]
           });
-        }
+          bossDef.minions.forEach((m, idx) => {
+            enemies.push({
+              ...m,
+              id: `${id}_minion_${idx}`,
+              stats: { ...m.stats },
+              passives: [...m.passives]
+            });
+          });
+          goldReward = 75 + Math.floor(rng() * 76);
+          bossSpecialMechanic = bossDef.specialMechanic;
+        } else {
+          const school = rng() < 0.7 ? biome.school : Object.values(MagicSchool)[Math.floor(rng() * 5)];
+          const baseCount = 2 + Math.floor(d / 4);
+          const count = type === 'elite' ? baseCount + 1 : baseCount;
 
-        if (type === 'combat') goldReward = 10 + Math.floor(rng() * 16);
-        else if (type === 'elite') goldReward = 25 + Math.floor(rng() * 26);
-        else if (type === 'boss') goldReward = 75 + Math.floor(rng() * 76);
+          for (let e = 0; e < count; e++) {
+            let statMult = (1 + (floor - 1) * 0.3) * (1 + d * 0.08);
+            if (type === 'elite') statMult *= 1.4;
+
+            const baseStats = { hp: 50, maxHp: 50, attack: 10, defense: 2, speed: 1, mana: 0, maxMana: 50 };
+
+            enemies.push({
+              id: `${id}_enemy${e}`,
+              name: `${school} Grunt`,
+              school: school,
+              tier: type === 'elite' ? 2 : 1,
+              stats: {
+                hp: Math.floor(baseStats.hp * statMult),
+                maxHp: Math.floor(baseStats.maxHp * statMult),
+                attack: Math.floor(baseStats.attack * statMult),
+                defense: Math.floor(baseStats.defense * statMult),
+                speed: baseStats.speed,
+                mana: baseStats.mana,
+                maxMana: baseStats.maxMana
+              },
+              passives: [],
+              position: (e + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
+              isHero: false,
+              isSummon: false,
+              spriteColor: school,
+              meshType: 'box',
+              weapon: null,
+              armor: null,
+              level: floor,
+              xp: 0,
+              subclass: null
+            });
+          }
+
+          if (type === 'combat') goldReward = 10 + Math.floor(rng() * 16);
+          else if (type === 'elite') goldReward = 25 + Math.floor(rng() * 26);
+        }
       }
 
       layerNodes.push({
@@ -96,6 +112,7 @@ export function generateFloor(floor: number, rng: () => number): FloorNode[] {
         completed: false,
         biome: biome.name,
         goldReward,
+        bossSpecialMechanic,
         nextNodes: []
       });
     }
@@ -111,7 +128,7 @@ export function generateFloor(floor: number, rng: () => number): FloorNode[] {
     for (let i = 0; i < currentLayer.length; i++) {
       const targetIdx = Math.min(i, nextLayer.length - 1);
       currentLayer[i].nextNodes!.push(nextLayer[targetIdx].id);
-      
+
       // Random extra connections
       if (nextLayer.length > 1 && rng() < 0.3) {
         const extraIdx = (targetIdx + 1) % nextLayer.length;

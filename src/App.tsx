@@ -11,7 +11,11 @@ import ArchetypeSelect from './screens/ArchetypeSelect';
 import NodeMap from './screens/NodeMap';
 import EventScreen from './screens/EventScreen';
 import PreBattleConjure from './screens/PreBattleConjure';
-import TitleScreen from './screens/TitleScreen';
+import MainMenu from './screens/MainMenu';
+import GameOver from './screens/GameOver';
+import Victory from './screens/Victory';
+import PostBattle from './screens/PostBattle';
+import Shop from './screens/Shop';
 
 type Screen =
   | 'MainMenu'
@@ -42,14 +46,29 @@ export default function App() {
   };
 
   const handleStartBattle = () => setCurrentScreen('Battle');
-  const handleBattleWin = () => setCurrentScreen('PostBattle');
+  const handleBattleWin = () => {
+    const state = useGameStore.getState();
+    const node = state.currentNodeMap[state.currentNodeIndex];
+    if (node?.type === 'boss' && state.floor >= 5) {
+      setCurrentScreen('Victory');
+    } else {
+      setCurrentScreen('PostBattle');
+    }
+  };
   const handleBattleLose = () => setCurrentScreen('GameOver');
-  const handleBossWin = () => setCurrentScreen('Victory');
 
   const handleContinue = () => setCurrentScreen('NodeMap');
-  const handleRestart = () => {
-    endRun();
+  const handleMenu = () => {
+    endRun(false); // Reset on going to menu from loss
     setCurrentScreen('MainMenu');
+  };
+  const handleVictoryMenu = () => {
+    endRun(true); // Reset on win
+    setCurrentScreen('MainMenu');
+  };
+  const handleRestart = () => {
+    endRun(false);
+    setCurrentScreen('ArchetypeSelect');
   };
 
   return (
@@ -68,7 +87,7 @@ export default function App() {
         {/* Content Area */}
         <main className="flex-1 flex flex-col items-center justify-center p-0 relative h-full">
           {currentScreen === 'MainMenu' && (
-            <TitleScreen onStart={handleStartRun} />
+            <MainMenu onStart={handleStartRun} />
           )}
 
           {currentScreen === 'ArchetypeSelect' && (
@@ -90,25 +109,11 @@ export default function App() {
           )}
 
           {currentScreen === 'PostBattle' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-2xl font-bold text-emerald-400">Victory!</h2>
-              <div className="p-6 bg-zinc-800 rounded-xl inline-block text-left space-y-2">
-                <p>+ 50 Gold</p>
-                <p>+ 1 Spell Draft</p>
-                <p>+ 1 Summon Draft</p>
-              </div>
-              <div>
-                <button onClick={handleContinue} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium">Continue</button>
-              </div>
-            </div>
+            <PostBattle onContinue={handleContinue} />
           )}
 
           {currentScreen === 'Shop' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-2xl font-bold text-yellow-400">Shop</h2>
-              <p className="text-zinc-400">Buy perks, spells, and summons here.</p>
-              <button onClick={handleContinue} className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium">Leave Shop</button>
-            </div>
+            <Shop onContinue={handleContinue} />
           )}
 
           {currentScreen === 'Event' && (
@@ -116,19 +121,11 @@ export default function App() {
           )}
 
           {currentScreen === 'GameOver' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-4xl font-bold text-red-500">Game Over</h2>
-              <p className="text-zinc-400">Your run has ended.</p>
-              <button onClick={handleRestart} className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium">Return to Main Menu</button>
-            </div>
+            <GameOver onRestart={handleRestart} onMenu={handleMenu} />
           )}
 
           {currentScreen === 'Victory' && (
-            <div className="text-center space-y-6 p-8">
-              <h2 className="text-4xl font-bold text-yellow-400">Run Complete!</h2>
-              <p className="text-zinc-400">You have conquered the final floor.</p>
-              <button onClick={handleRestart} className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium">Return to Main Menu</button>
-            </div>
+            <Victory onMenu={handleVictoryMenu} />
           )}
         </main>
       </div>

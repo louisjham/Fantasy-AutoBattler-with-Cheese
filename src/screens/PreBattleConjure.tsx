@@ -3,13 +3,17 @@ import { useGameStore } from '../store';
 import { Unit, MagicSchool, PlayerArchetype } from '../types';
 import { calculateSynergies } from '../systems/SynergySystem';
 import { SCHOOL_COLORS } from '../constants';
+import { BOSSES } from '../data/bosses';
 
 interface PreBattleConjureProps {
   onStartBattle: () => void;
 }
 
 export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProps) {
-  const { heroes, summonRoster, floor, archetype, setFormation } = useGameStore();
+  const { heroes, summonRoster, floor, archetype, setFormation, currentNodeMap, currentNodeIndex } = useGameStore();
+  const currentNode = currentNodeMap[currentNodeIndex];
+  const isBossNode = currentNode?.type === 'boss';
+  const bossData = isBossNode ? BOSSES[floor] || BOSSES[5] : null;
 
   const [formation, setLocalFormation] = useState<Record<number, string | null>>({
     1: null, 2: null, 3: null,
@@ -92,11 +96,31 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
 
   return (
     <div className="flex w-full h-full p-4 gap-4" style={{ fontFamily: "'Press Start 2P', monospace" }}>
-      
+
       {/* LEFT PANEL: Formation Grid */}
-      <div className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl p-4 flex flex-col">
-        <h2 className="text-xl text-white mb-4 text-center">FORMATION</h2>
-        
+      <div className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl p-4 flex flex-col overflow-y-auto custom-scrollbar">
+        {isBossNode && bossData && (
+          <div className="mb-6 flex flex-col items-center">
+            <h2 className="text-2xl font-bold mb-2 text-center" style={{ color: SCHOOL_COLORS[bossData.unit.school], textShadow: '2px 2px 0 #000' }}>
+              {bossData.unit.name}
+            </h2>
+            <p className="text-xs text-zinc-400 text-center italic mb-4 max-w-lg leading-relaxed">
+              "{bossData.introText}"
+            </p>
+            <div className="bg-[#FF8800]/20 border border-[#FF8800] p-3 rounded w-full max-w-lg">
+              <span className="text-[#FF8800] text-[10px] font-bold">WARNING: </span>
+              <span className="text-zinc-200 text-[10px] leading-relaxed">{bossData.mechanicDescription}</span>
+            </div>
+            <div className="mt-8 mb-2 w-full flex items-center gap-4 text-center">
+              <div className="h-px bg-zinc-700 flex-1"></div>
+              <span className="text-zinc-500 text-[10px] tracking-widest uppercase">PREPARE YOURSELF</span>
+              <div className="h-px bg-zinc-700 flex-1"></div>
+            </div>
+          </div>
+        )}
+
+        <h2 className="text-xl text-white mb-4 text-center">{isBossNode ? '' : 'FORMATION'}</h2>
+
         {/* Heroes Row */}
         <div className="mb-6">
           <h3 className="text-xs text-zinc-500 mb-2">HEROES (Always Deployed)</h3>
@@ -127,12 +151,12 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
                   const heroInSlot = heroes.find(h => h.position === slot);
                   const unitId = formation[slot];
                   const summonInSlot = unitId ? summonRoster.find(s => s.id === unitId) : null;
-                  
+
                   const unit = heroInSlot || summonInSlot;
                   const isHeroSlot = !!heroInSlot;
 
                   return (
-                    <div 
+                    <div
                       key={slot}
                       onClick={() => !isHeroSlot && handleSlotClick(slot)}
                       className={`w-20 h-24 border-2 rounded flex flex-col items-center justify-center transition-colors relative
@@ -174,14 +198,14 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
       {/* CENTER PANEL: Mana Budget */}
       <div className="w-64 bg-zinc-900 border border-zinc-700 rounded-xl p-4 flex flex-col">
         <h2 className="text-xl text-white mb-6 text-center">BUDGET</h2>
-        
+
         <div className="mb-8">
           <div className="flex justify-between text-xs mb-2">
             <span className="text-zinc-400">MANA</span>
             <span className={usedMana > maxMana ? 'text-red-400' : 'text-blue-400'}>{usedMana} / {maxMana}</span>
           </div>
           <div className="w-full h-4 bg-zinc-800 rounded overflow-hidden">
-            <div 
+            <div
               className={`h-full transition-all ${usedMana > maxMana ? 'bg-red-500' : 'bg-blue-500'}`}
               style={{ width: `${Math.min(100, (usedMana / maxMana) * 100)}%` }}
             />
@@ -206,7 +230,7 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
         </div>
 
         <div className="mt-auto pt-4">
-          <button 
+          <button
             onClick={handleStart}
             disabled={placedSummons.length === 0}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded font-bold transition-colors"
@@ -222,7 +246,7 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
       {/* RIGHT PANEL: Summon Roster */}
       <div className="w-80 bg-zinc-900 border border-zinc-700 rounded-xl p-4 flex flex-col overflow-hidden">
         <h2 className="text-xl text-white mb-4 text-center">ROSTER</h2>
-        
+
         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
           {summonRoster.map(summon => {
             const isPlaced = Object.values(formation).includes(summon.id);
@@ -230,11 +254,11 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
             const canAfford = usedMana + (summon.manaCost || 0) <= maxMana;
 
             return (
-              <div 
+              <div
                 key={summon.id}
                 onClick={() => handleRosterClick(summon.id)}
                 className={`border-2 rounded p-3 transition-all cursor-pointer
-                  ${isPlaced ? 'opacity-30 border-zinc-700 bg-zinc-900' : 
+                  ${isPlaced ? 'opacity-30 border-zinc-700 bg-zinc-900' :
                     isSelected ? 'bg-zinc-800 scale-[1.02]' : 'bg-zinc-900 hover:bg-zinc-800'}
                 `}
                 style={{ borderColor: isPlaced ? undefined : (isSelected ? 'white' : SCHOOL_COLORS[summon.school]) }}
@@ -277,7 +301,7 @@ export default function PreBattleConjure({ onStartBattle }: PreBattleConjureProp
               </div>
             );
           })}
-          
+
           {summonRoster.length === 0 && (
             <div className="text-center text-zinc-500 text-[10px] mt-10">
               No summons in roster.
