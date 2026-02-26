@@ -23,6 +23,7 @@ export class CombatEngine {
   public tempStatModifiers: Map<string, Record<string, number>> = new Map();
   private boneshieldActive: Set<string> = new Set();
   private originalAttacks: Map<string, number> = new Map();
+  private originalMaxHp: Map<string, number> = new Map();
 
   // Boss state
   bossSpecialTickCounter: number = 0;
@@ -42,7 +43,24 @@ export class CombatEngine {
     // Deep copy to avoid mutating store state directly
     this.playerUnits = playerUnits.map(u => ({ ...u, stats: { ...u.stats } }));
     this.enemyUnits = enemyUnits.map(u => ({ ...u, stats: { ...u.stats } }));
+
+    const difficulty = useGameStore.getState().difficulty;
+    if (difficulty !== 'normal') {
+      const mult = difficulty === 'easy' ? 0.75 : 1.25;
+      for (const e of this.enemyUnits) {
+        if (e.meshType === 'boss') {
+          e.stats.hp = Math.round(e.stats.hp * mult);
+          e.stats.maxHp = Math.round(e.stats.maxHp * mult);
+          e.stats.attack = Math.round(e.stats.attack * mult);
+        }
+      }
+    }
+
     this.playerSynergies = calculateSynergies(this.playerUnits);
+
+    for (const u of this.playerUnits) {
+      this.originalMaxHp.set(u.id, u.stats.maxHp);
+    }
 
     // Apply Life tier 1 at start
     const lifeSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Life);
@@ -103,7 +121,7 @@ export class CombatEngine {
     if (this.isRunning) return;
     this.isRunning = true;
     this.tempStatModifiers.clear();
-    this.intervalId = window.setInterval(() => this.tick(), TICK_MS);
+    this.intervalId = setInterval(() => this.tick(), TICK_MS) as unknown as number;
   }
 
   stop() {
@@ -112,6 +130,7 @@ export class CombatEngine {
       this.intervalId = null;
     }
     this.isRunning = false;
+    this.originalMaxHp.clear();
     globalEventBus.off('spell:cast', this.handleSpellCast);
   }
 
@@ -279,12 +298,15 @@ export class CombatEngine {
         if (this.bossSpecialTickCounter > 0 && this.bossSpecialTickCounter % 6 === 0) {
           const all = [...this.playerUnits, ...this.enemyUnits];
           all.forEach(u => {
-            const dmg = this.applyDamageToUnit(u, 30, false, MagicSchool.Death);
+            const dmg = this.applyDamageToUnit(u, 20, false, MagicSchool.Death);
             if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
           });
           this.playerUnits.forEach(u => {
-            u.stats.maxHp = Math.max(1, u.stats.maxHp - 10);
-            u.stats.hp = Math.min(u.stats.hp, u.stats.maxHp);
+            const originalMax = this.originalMaxHp.get(u.id) ?? u.stats.maxHp;
+            const floor = originalMax * 0.5;
+            if (u.stats.maxHp <= floor) return;
+            u.stats.maxHp = Math.max(floor, u.stats.maxHp - 10);
+            if (u.stats.hp > u.stats.maxHp) u.stats.hp = u.stats.maxHp;
           });
 
           let topSchool = Object.entries(this.voidDamageTracker).reduce((a, b) => a[1] > b[1] ? a : b);
@@ -352,7 +374,8 @@ export class CombatEngine {
     }
 
     // Process each unit
-    for (const unit of allUnits) {
+    const aliveUnits = allUnits.filter(u => u.stats.hp > 0);
+    for (const unit of aliveUnits) {
       if (unit.stats.hp <= 0) continue;
 
       const effects = this.statusEffects.get(unit.id) || [];
@@ -366,11 +389,11 @@ export class CombatEngine {
       }
 
       const isPlayer = unit.isHero || unit.isSummon;
-      let manaRegen = 8;
+      let manaRegen = 15;
       if (isPlayer) {
         const arcaneSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Arcane);
         if (arcaneSynergy && arcaneSynergy.tier >= 2) {
-          manaRegen = 12; // 8 * 1.5
+          manaRegen = 25; // More spells
         }
       }
 
@@ -553,7 +576,8 @@ export class CombatEngine {
     }
 
     // Boss passive: bone sovereign raise dead
-    if (activeBoss && activeBoss.passives.some(p => p.effect === 'raise_slain') && killerId === activeBoss.id && isPlayer) {
+    const isRaisedSkeleton = unit.id.startsWith('boss_skel_');
+    if (!isRaisedSkeleton && activeBoss && activeBoss.passives.some(p => p.effect === 'raise_slain') && killerId === activeBoss.id && isPlayer) {
       this.enemyUnits.push({
         id: `boss_skel_${Date.now()}_raise`, name: 'Skeleton Warrior', school: MagicSchool.Death,
         tier: 1, stats: { hp: 40, maxHp: 40, attack: 15, defense: 5, speed: 1, mana: 0, maxMana: 100 },
@@ -657,6 +681,13 @@ export class CombatEngine {
           randomAlly.stats.hp = randomAlly.stats.maxHp;
         }
       }
+    }
+
+    // CRITICAL FIX: Remove dead unit from active combat arrays immediately
+    if (isPlayer) {
+      this.playerUnits = this.playerUnits.filter(u => u.id !== unit.id);
+    } else {
+      this.enemyUnits = this.enemyUnits.filter(u => u.id !== unit.id);
     }
   }
 

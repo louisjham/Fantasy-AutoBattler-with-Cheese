@@ -16,8 +16,10 @@ import GameOver from './screens/GameOver';
 import Victory from './screens/Victory';
 import PostBattle from './screens/PostBattle';
 import Shop from './screens/Shop';
+import IntroVideo from './screens/IntroVideo';
 
 type Screen =
+  | 'IntroVideo'
   | 'MainMenu'
   | 'ArchetypeSelect'
   | 'NodeMap'
@@ -30,7 +32,7 @@ type Screen =
   | 'Victory';
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('MainMenu');
+  const [currentScreen, setCurrentScreen] = useState<Screen>('IntroVideo');
   const { archetype, endRun } = useGameStore();
 
   const handleStartRun = () => setCurrentScreen('ArchetypeSelect');
@@ -86,6 +88,10 @@ export default function App() {
 
         {/* Content Area */}
         <main className="flex-1 flex flex-col items-center justify-center p-0 relative h-full">
+          {currentScreen === 'IntroVideo' && (
+            <IntroVideo onComplete={() => setCurrentScreen('MainMenu')} />
+          )}
+
           {currentScreen === 'MainMenu' && (
             <MainMenu onStart={handleStartRun} />
           )}

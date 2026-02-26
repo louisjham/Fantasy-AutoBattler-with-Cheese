@@ -9,6 +9,8 @@ interface MainMenuProps {
 export default function MainMenu({ onStart }: MainMenuProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const metaUnlocks = useGameStore(s => s.metaUnlocks);
+    const difficulty = useGameStore(s => s.difficulty);
+    const setDifficulty = useGameStore(s => s.setDifficulty);
 
     useEffect(() => {
         if (!canvasRef.current) return;
@@ -126,6 +128,11 @@ export default function MainMenu({ onStart }: MainMenuProps) {
                     <button onClick={onStart} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 px-6 rounded text-lg transition-transform hover:scale-105 shadow-lg" style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '12px' }}>
                         NEW RUN
                     </button>
+                    <div className="flex justify-between w-full mt-2 mb-2">
+                        {['easy', 'normal', 'hard'].map(d => (
+                            <button key={d} onClick={() => setDifficulty(d as any)} className={`px-2 py-1 text-[10px] rounded border ${difficulty === d ? 'bg-zinc-700 text-white border-zinc-500' : 'bg-zinc-900 text-zinc-500 border-zinc-800'}`} style={{ fontFamily: "'Press Start 2P', monospace" }}>{d.toUpperCase()}</button>
+                        ))}
+                    </div>
                     <button className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-4 px-6 rounded transition-all shadow shadow-black" style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '12px' }}>
                         CODEX
                     </button>

@@ -32,7 +32,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
   const [activeUnitCount, setActiveUnitCount] = useState(0);
   const [onFieldIds, setOnFieldIds] = useState<Set<string>>(new Set());
   const maxPlayerMana = 100;
-  const { heroes, summonRoster, spellbook, formation } = useGameStore();
+  const { heroes, summonRoster, spellbook, formation, currentNodeMap, currentNodeIndex } = useGameStore();
   const combatEngineRef = useRef<CombatEngine | null>(null);
 
   useEffect(() => {
@@ -185,14 +185,12 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     setActiveUnitCount(playerUnits.length);
     setOnFieldIds(new Set(initialSummons.map(s => s.id)));
 
-    const initialEnemies = [
-      createUnit('e1', 'warrior_fire', 7, false, false),
-      createUnit('e2', 'archer_life', 5, false, false),
-      createUnit('e3', 'boss_death', 2, false, false)
-    ].map(e => {
-      const coords = getCoordinatesForPosition(e.position, true);
+    const currentMapNode = currentNodeMap && currentNodeIndex !== null ? currentNodeMap[currentNodeIndex] : null;
+
+    const initialEnemies = currentMapNode && currentMapNode.enemies ? currentMapNode.enemies.map((e, i) => {
+      const coords = getCoordinatesForPosition(e.position || (i + 1), true);
       return { ...e, x: coords.x, z: coords.z };
-    });
+    }) : [];
 
     [...playerUnits, ...initialEnemies].forEach(createUnitMesh);
 

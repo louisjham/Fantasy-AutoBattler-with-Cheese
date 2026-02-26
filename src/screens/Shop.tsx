@@ -16,14 +16,12 @@ const CONSUMABLES: Consumable[] = [
 ];
 
 export default function Shop({ onContinue }: ShopProps) {
-    const { gold, floor, summonRoster, addToInventory, upgradeSummon, useGold } = useGameStore(state => ({
-        gold: state.gold,
-        floor: state.floor,
-        summonRoster: state.summonRoster,
-        addToInventory: state.addToInventory,
-        upgradeSummon: state.upgradeSummon,
-        useGold: (amount: number) => useGameStore.setState(s => ({ gold: s.gold - amount }))
-    }));
+    const gold = useGameStore(state => state.gold);
+    const floor = useGameStore(state => state.floor);
+    const summonRoster = useGameStore(state => state.summonRoster);
+    const addToInventory = useGameStore(state => state.addToInventory);
+    const upgradeSummon = useGameStore(state => state.upgradeSummon);
+    const useGold = (amount: number) => useGameStore.setState(s => ({ gold: s.gold - amount }));
 
     const [weapons, setWeapons] = useState<Weapon[]>([]);
     const [armors, setArmors] = useState<Armor[]>([]);

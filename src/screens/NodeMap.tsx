@@ -7,11 +7,11 @@ interface NodeMapProps {
 }
 
 export default function NodeMap({ onNodeSelect }: NodeMapProps) {
-  const { floor, currentNodeMap, currentNodeIndex, setCurrentNode, completeNode } = useGameStore();
+  const { floor, currentNodeMap, currentNodeIndex, setCurrentNode, completeNode, difficulty } = useGameStore();
   const [showRestModal, setShowRestModal] = useState(false);
 
   const currentNode = currentNodeMap[currentNodeIndex];
-  
+
   // Find available nodes (nodes that are nextNodes of the current node, or the current node if it's the start and not completed)
   let availableNodeIds: string[] = [];
   if (currentNode && !currentNode.completed) {
@@ -25,7 +25,7 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
     if (!availableNodeIds.includes(node.id)) return;
 
     setCurrentNode(node.id);
-    
+
     if (node.type === 'rest') {
       setShowRestModal(true);
     } else {
@@ -41,7 +41,7 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
   };
 
   const getNodeColor = (type: string) => {
-    switch(type) {
+    switch (type) {
       case 'combat': return '#FF4422';
       case 'elite': return '#FF8800';
       case 'shop': return '#FFCC00';
@@ -63,7 +63,12 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
         <h2 className="text-2xl text-white tracking-widest" style={{ fontFamily: "'Press Start 2P', monospace" }}>
           FLOOR {floor}
         </h2>
-        <p className="text-zinc-500 mt-2 text-sm">{currentNodeMap[0]?.biome || 'Unknown Biome'}</p>
+        <div className="flex items-center justify-center gap-2 mt-2">
+          <p className="text-zinc-500 text-sm">{currentNodeMap[0]?.biome || 'Unknown Biome'}</p>
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-sm text-black" style={{ backgroundColor: difficulty === 'easy' ? '#FFCC00' : difficulty === 'hard' ? '#FF4422' : '#2244FF' }}>
+            {difficulty.toUpperCase()}
+          </span>
+        </div>
       </div>
 
       <div className="relative flex-1 w-full max-w-2xl flex flex-col-reverse justify-between items-center py-10">
@@ -74,14 +79,14 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
             return node.nextNodes.map(nextId => {
               const nextNode = currentNodeMap.find(n => n.id === nextId);
               if (!nextNode) return null;
-              
+
               // Calculate positions (rough approximation based on flex layout)
               const startY = 100 - (node.depth / maxDepth) * 100;
               const endY = 100 - (nextNode.depth / maxDepth) * 100;
-              
+
               const startLayer = nodesByDepth[node.depth];
               const endLayer = nodesByDepth[nextNode.depth];
-              
+
               const startX = 50 + ((startLayer.indexOf(node) - (startLayer.length - 1) / 2) * 20);
               const endX = 50 + ((endLayer.indexOf(nextNode) - (endLayer.length - 1) / 2) * 20);
 
@@ -89,7 +94,7 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
               const isPathCompleted = node.completed && nextNode.completed;
 
               return (
-                <line 
+                <line
                   key={`${node.id}-${nextId}`}
                   x1={`${startX}%`} y1={`${startY}%`}
                   x2={`${endX}%`} y2={`${endY}%`}
@@ -112,7 +117,7 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
               const color = getNodeColor(node.type);
 
               return (
-                <div 
+                <div
                   key={node.id}
                   onClick={() => handleNodeClick(node)}
                   className={`relative flex items-center justify-center w-12 h-12 transition-all duration-300 ${isAvailable ? 'cursor-pointer hover:scale-110' : ''}`}
@@ -123,7 +128,7 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
                   }}
                 >
                   {/* Hexagon shape */}
-                  <div 
+                  <div
                     className="absolute inset-0"
                     style={{
                       backgroundColor: '#1A1A1A',
@@ -132,9 +137,9 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
                       boxShadow: isCurrent ? `0 0 15px ${color}` : 'none'
                     }}
                   />
-                  
+
                   {/* Inner color fill based on type */}
-                  <div 
+                  <div
                     className="absolute inset-1"
                     style={{
                       backgroundColor: color,
@@ -167,13 +172,13 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
             <h3 className="text-2xl text-green-400 font-bold">Rest Site</h3>
             <p className="text-zinc-400">Take a moment to recover.</p>
             <div className="flex flex-col gap-4">
-              <button 
+              <button
                 onClick={handleRestChoice}
                 className="p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg border border-green-900/50 text-white transition-colors"
               >
                 Heal 30% HP
               </button>
-              <button 
+              <button
                 onClick={handleRestChoice}
                 className="p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg border border-indigo-900/50 text-white transition-colors"
               >

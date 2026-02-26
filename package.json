@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "balance": "tsx run_balance.ts",
+    "balance:full": "tsx run_balance.ts 100",
+    "balance:verbose": "tsx run_balance.ts 1 --verbose",
+    "balance:floor5": "tsx run_balance.ts 50 --floor=5"
   },
   "dependencies": {
     "@babylonjs/core": "^8.52.0",
@@ -30,6 +34,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "playwright": "^1.58.2",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

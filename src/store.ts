@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool, Weapon, Armor, InventoryItem, Consumable, RunStats } from './types';
-import { generateFloor } from './systems/ProceduralGen';
+import { generateFloor, getFloorStatMultiplier } from './systems/ProceduralGen';
 import { SUMMONS } from './data/units';
 
 interface GameState extends RunState {
+  setDifficulty: (difficulty: 'easy' | 'normal' | 'hard') => void;
   setArchetype: (archetype: PlayerArchetype) => void;
   addPerk: (perk: Perk) => void;
   addSpell: (spell: Spell) => void;
@@ -27,6 +28,7 @@ interface GameState extends RunState {
 
 const initialRunState: RunState = {
   archetype: null,
+  difficulty: 'normal',
   floor: 1,
   heroes: [],
   summonRoster: [],
@@ -52,6 +54,8 @@ const initialRunState: RunState = {
 
 export const useGameStore = create<GameState>((set) => ({
   ...initialRunState,
+
+  setDifficulty: (difficulty) => set({ difficulty }),
 
   setArchetype: (archetype) => {
     let maxHeroSlots = 3;
@@ -89,7 +93,7 @@ export const useGameStore = create<GameState>((set) => ({
       heroes = [{
         id: 'conjurer_hero', name: 'The Conjurer', school: MagicSchool.Arcane, isHero: true, isSummon: false,
         tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 5, meshType: 'octahedron', spriteColor: '#2244FF',
-        stats: { hp: 80, maxHp: 80, attack: 12, defense: 6, speed: 1, mana: 30, maxMana: 100 }, passives: []
+        stats: { hp: 450, maxHp: 450, attack: 30, defense: 12, speed: 1, mana: 30, maxMana: 100 }, passives: []
       }];
       summonRoster = [
         getSummon('skeleton_warrior', '_1'),
@@ -181,6 +185,9 @@ export const useGameStore = create<GameState>((set) => ({
       ].filter(Boolean) as Unit[];
     }
 
+    heroes = heroes.map(h => ({ ...h, baseStats: { ...h.stats } }));
+    summonRoster = summonRoster.map(s => ({ ...s, baseStats: { ...s.stats } }));
+
     set({
       archetype,
       maxHeroSlots,
@@ -209,11 +216,37 @@ export const useGameStore = create<GameState>((set) => ({
 
   advanceFloor: () => set((state) => {
     const nextFloor = state.floor + 1;
-    const map = generateFloor(nextFloor, Math.random);
+    const map = generateFloor(nextFloor, Math.random, state.difficulty);
+
+    const mult = getFloorStatMultiplier(nextFloor);
+    const scaleUnit = (u: Unit): Unit => {
+      const base = u.baseStats ?? u.stats;
+      const scaled = {
+        hp: Math.round(base.hp * mult),
+        maxHp: Math.round(base.maxHp * mult),
+        attack: Math.round(base.attack * mult),
+        defense: Math.round(base.defense * mult),
+        speed: base.speed,
+        mana: base.mana,
+        maxMana: base.maxMana,
+      };
+      return {
+        ...u,
+        baseStats: base,
+        stats: {
+          ...u.stats,
+          ...scaled,
+          hp: Math.min(u.stats.hp, scaled.maxHp)
+        }
+      };
+    };
+
     return {
       floor: nextFloor,
       currentNodeMap: map,
-      currentNodeIndex: 0
+      currentNodeIndex: 0,
+      heroes: state.heroes.map(scaleUnit),
+      summonRoster: state.summonRoster.map(scaleUnit)
     };
   }),
 
@@ -277,7 +310,7 @@ export const useGameStore = create<GameState>((set) => ({
   }),
 
   initializeRun: () => set((state) => {
-    const map = generateFloor(1, Math.random);
+    const map = generateFloor(1, Math.random, state.difficulty);
     return {
       currentNodeMap: map,
       currentNodeIndex: 0,

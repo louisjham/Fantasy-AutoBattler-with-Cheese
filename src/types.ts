@@ -100,6 +100,7 @@ export interface Unit {
   school: MagicSchool;
   tier: 1 | 2 | 3 | 4;
   stats: UnitStats;
+  baseStats?: UnitStats;
   passives: PassiveEffect[];
   position: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   isHero: boolean;
@@ -164,6 +165,7 @@ export interface RunStats {
 
 export interface RunState {
   archetype: PlayerArchetype | null;
+  difficulty: 'easy' | 'normal' | 'hard';
   floor: number;
   heroes: Unit[];
   summonRoster: Unit[];

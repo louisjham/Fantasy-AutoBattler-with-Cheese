@@ -9,7 +9,11 @@ const BIOMES = [
   { name: "The Celestial Gate", school: MagicSchool.Life }
 ];
 
-export function generateFloor(floor: number, rng: () => number): FloorNode[] {
+export function getFloorStatMultiplier(floor: number): number {
+  return 1 + ((floor - 1) * 0.1);
+}
+
+export function generateFloor(floor: number, rng: () => number, difficulty: 'easy' | 'normal' | 'hard' = 'normal'): FloorNode[] {
   const maxDepth = 12 + Math.floor(rng() * 5); // 12 to 16
   const biomeIdx = Math.min(floor - 1, 4);
   const biome = BIOMES[biomeIdx];
@@ -61,14 +65,17 @@ export function generateFloor(floor: number, rng: () => number): FloorNode[] {
           bossSpecialMechanic = bossDef.specialMechanic;
         } else {
           const school = rng() < 0.7 ? biome.school : Object.values(MagicSchool)[Math.floor(rng() * 5)];
-          const baseCount = 2 + Math.floor(d / 4);
+          const baseCount = floor === 1 ? 1 : Math.min(4, 1 + Math.floor((floor + d) / 5));
           const count = type === 'elite' ? baseCount + 1 : baseCount;
 
           for (let e = 0; e < count; e++) {
             let statMult = (1 + (floor - 1) * 0.3) * (1 + d * 0.08);
             if (type === 'elite') statMult *= 1.4;
 
-            const baseStats = { hp: 50, maxHp: 50, attack: 10, defense: 2, speed: 1, mana: 0, maxMana: 50 };
+            const diffMult = difficulty === 'easy' ? 0.75 : difficulty === 'hard' ? 1.25 : 1.0;
+            statMult *= diffMult;
+
+            const baseStats = { hp: 25, maxHp: 25, attack: 6, defense: 2, speed: 1, mana: 0, maxMana: 50 };
 
             enemies.push({
               id: `${id}_enemy${e}`,
