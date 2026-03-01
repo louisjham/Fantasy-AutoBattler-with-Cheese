@@ -6,6 +6,8 @@ import { useGameStore } from '../store';
 import { PerkEngine } from './PerkEngine';
 import { SpellEngine } from './SpellEngine';
 import { scaleUnitStats } from '../data/enemyScaling';
+import { getRandomEnemyPerk, enemyPerkToPassive } from '../data/enemyPerks';
+import { getBossForFloor } from '../data/bosses';
 
 export interface StatusEffect {
   type: 'burning' | 'poisoned' | 'frozen' | 'stunned' | 'regen' | 'rooted';
@@ -66,6 +68,22 @@ export class CombatEngine {
     // node map, so we do NOT re-scale here — that would double the multiplier.
     this.playerUnits = playerUnits.map(u => ({ ...u, stats: { ...u.stats } }));
     this.enemyUnits = enemyUnits.map(u => ({ ...u, stats: { ...u.stats } }));
+
+    // ── Room-type perk injection ───────────────────────────────────────────────
+    // Read the current node to decide elite / boss perk assignment.
+    // We only inject if the unit carries no passives yet, so ProceduralGen-
+    // assigned perks are always respected (no double-application).
+    const currentNode = state.currentNodeMap[state.currentNodeIndex];
+    const roomType = currentNode?.type ?? 'combat';
+
+    for (const enemy of this.enemyUnits) {
+      if (roomType === 'elite' && enemy.passives.length === 0) {
+        const perk = getRandomEnemyPerk(enemy.school.toLowerCase());
+        if (perk) enemy.passives = [enemyPerkToPassive(perk)];
+      }
+      // Boss perks are curated in ProceduralGen via pickEnemyPerks() — no change here.
+      // Regular combat rooms always keep passives empty.
+    }
 
     this.playerSynergies = calculateSynergies(this.playerUnits);
 
@@ -147,20 +165,34 @@ export class CombatEngine {
     trigger: string,
     context?: { target?: Unit; attacker?: Unit; damageDealt?: number }
   ): void {
-    // on_tick effects
+    // ── on_tick effects ──────────────────────────────────────────────────────
     if (trigger === 'on_tick') {
+      // Legacy key
       if (effectName === 'enemy_regen_5hp' && unit.stats.hp > 0) {
         unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + value);
       }
+      // New key — hard-coded 5 HP (value field is 0 for EnemyPerk-sourced passives)
+      if (effectName === 'regen_5hp_per_tick' && unit.stats.hp > 0) {
+        unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + 5);
+      }
+
+      // Legacy key
       if (effectName === 'enemy_pack_tactics') {
-        // +value attack per living ally (enemy side)
         const aliveAllies = this.enemyUnits.filter(e => e.id !== unit.id && e.stats.hp > 0).length;
         const mods = this.tempStatModifiers.get(unit.id) || {};
         mods.attack = aliveAllies * value;
         this.tempStatModifiers.set(unit.id, mods);
       }
+      // New key — +4 ATK per living ally
+      if (effectName === 'pack_tactics_atk_per_ally') {
+        const aliveAllies = this.enemyUnits.filter(e => e.id !== unit.id && e.stats.hp > 0).length;
+        const mods = this.tempStatModifiers.get(unit.id) || {};
+        mods.attack = aliveAllies * 4;
+        this.tempStatModifiers.set(unit.id, mods);
+      }
+
+      // Legacy key
       if (effectName === 'enemy_fear_aura') {
-        // Reduce all player attack by value each tick (additive)
         for (const p of this.playerUnits) {
           if (p.stats.hp > 0) {
             const mods = this.tempStatModifiers.get(p.id) || {};
@@ -169,11 +201,24 @@ export class CombatEngine {
           }
         }
       }
+
+      // New key — aura deals 5 fire dmg to all living player units
+      if (effectName === 'aura_burning_damage') {
+        for (const p of this.playerUnits) {
+          if (p.stats.hp > 0) {
+            const dmg = this.applyDamageToUnit(p, 5, false, MagicSchool.Fire);
+            globalEventBus.emit('unit:attacked', { attacker: unit, target: p, damage: dmg });
+            if (p.stats.hp <= 0) this.handleUnitDeath(p, unit.id);
+          }
+        }
+      }
     }
 
-    // on_hit: unit attacked a player unit
+    // ── on_hit: unit hit a player unit ───────────────────────────────────────
     if (trigger === 'on_hit' && context?.target) {
       const target = context.target;
+
+      // Legacy keys
       if (effectName === 'enemy_burning_aura') {
         this.addStatusEffect(target.id, { type: 'burning', damagePerTick: value, duration: 3, sourceUnitId: unit.id });
       }
@@ -181,15 +226,22 @@ export class CombatEngine {
         this.addStatusEffect(target.id, { type: 'burning', damagePerTick: value, duration: 2, sourceUnitId: unit.id });
       }
       if (effectName === 'enemy_mana_burn') {
-        // Drain player mana
         this.playerMana = Math.max(0, this.playerMana - value);
+      }
+
+      // New keys
+      if (effectName === 'apply_burning_on_hit') {
+        this.addStatusEffect(target.id, { type: 'burning', damagePerTick: 5, duration: 2, sourceUnitId: unit.id });
+      }
+      if (effectName === 'drain_10_mana_on_hit') {
+        this.playerMana = Math.max(0, this.playerMana - 10);
       }
     }
 
-    // on_damaged: unit was hit by a player
+    // ── on_damaged: unit was hit by a player ──────────────────────────────────
     if (trigger === 'on_damaged' && context?.attacker) {
+      // Legacy keys
       if (effectName === 'enemy_enrage_low_hp' && unit.stats.hp <= unit.stats.maxHp * (value / 100)) {
-        // +50% attack while enraged
         const mods = this.tempStatModifiers.get(unit.id) || {};
         if (!mods['enraged']) {
           mods.attack = Math.floor(unit.stats.attack * 0.5);
@@ -198,7 +250,6 @@ export class CombatEngine {
         }
       }
       if (effectName === 'enemy_thorns') {
-        // Reflect value damage back to attacker
         const attacker = context.attacker;
         if (attacker.stats.hp > 0) {
           attacker.stats.hp -= value;
@@ -207,7 +258,6 @@ export class CombatEngine {
         }
       }
       if (effectName === 'enemy_arcane_reflect') {
-        // Reflect value% of damage back to all living player units
         for (const p of this.playerUnits) {
           if (p.stats.hp > 0) {
             const reflectDmg = Math.floor((context.damageDealt ?? 0) * (value / 100));
@@ -218,27 +268,87 @@ export class CombatEngine {
           }
         }
       }
+
+      // New keys
+      if (effectName === 'enrage_below_30' && unit.stats.hp <= unit.stats.maxHp * 0.30) {
+        const mods = this.tempStatModifiers.get(unit.id) || {};
+        if (!mods['enraged_new']) {
+          mods.attack = Math.floor(unit.stats.attack * 0.5);
+          mods.speed = (mods.speed ?? unit.stats.speed) + 1;
+          mods['enraged_new'] = 1;
+          this.tempStatModifiers.set(unit.id, mods);
+        }
+      }
+      if (effectName === 'reflect_damage_20pct') {
+        const attacker = context.attacker;
+        if (attacker.stats.hp > 0) {
+          const reflectDmg = Math.floor((context.damageDealt ?? 0) * 0.20);
+          if (reflectDmg > 0) {
+            attacker.stats.hp -= reflectDmg;
+            globalEventBus.emit('unit:attacked', { attacker: unit, target: attacker, damage: reflectDmg });
+            if (attacker.stats.hp <= 0) this.handleUnitDeath(attacker, unit.id);
+          }
+        }
+      }
+      if (effectName === 'reflect_spell_30pct') {
+        if (Math.random() < 0.30) {
+          const attacker = context.attacker;
+          if (attacker.stats.hp > 0) {
+            const reflectDmg = context.damageDealt ?? 0;
+            attacker.stats.hp -= reflectDmg;
+            globalEventBus.emit('unit:attacked', { attacker: unit, target: attacker, damage: reflectDmg });
+            if (attacker.stats.hp <= 0) this.handleUnitDeath(attacker, unit.id);
+          }
+        }
+      }
+      // revive_once_at_25 — triggered in on_death block below (guard flag prevents loop)
     }
 
-    // on_kill: unit killed a player
+    // ── on_kill: unit killed a player ─────────────────────────────────────────
     if (trigger === 'on_kill') {
+      // Legacy key
       if (effectName === 'enemy_soul_drain') {
         unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + value);
       }
+      // New key
+      if (effectName === 'heal_20_on_kill') {
+        unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + 20);
+      }
     }
 
-    // on_death: unit is dying
+    // ── on_death: unit is dying ───────────────────────────────────────────────
     if (trigger === 'on_death') {
+      // Legacy key
       if (effectName === 'enemy_undying' && !this.bossPhaseFlags[`undying_${unit.id}`]) {
         this.bossPhaseFlags[`undying_${unit.id}`] = true;
         unit.stats.hp = Math.floor(unit.stats.maxHp * (value / 100));
       }
+      // New key — revive at 25% HP
+      if (effectName === 'revive_once_at_25' && !this.bossPhaseFlags[`revive25_${unit.id}`]) {
+        this.bossPhaseFlags[`revive25_${unit.id}`] = true;
+        unit.stats.hp = Math.floor(unit.stats.maxHp * 0.25);
+      }
     }
 
-    // battle_start: applied once at combat start
+    // ── battle_start: applied once at combat start ────────────────────────────
     if (trigger === 'battle_start') {
+      // Legacy key
       if (effectName === 'enemy_fortify') {
         unit.stats.defense += value;
+      }
+      // New key — fear aura: reduce player ATK by 30% for this battle
+      if (effectName === 'fear_aura_on_start') {
+        for (const p of this.playerUnits) {
+          if (p.stats.hp > 0) {
+            const mods = this.tempStatModifiers.get(p.id) || {};
+            mods.attack = Math.floor(p.stats.attack * 0.70);
+            this.tempStatModifiers.set(p.id, mods);
+          }
+        }
+      }
+      // New key — absorb_first_spell flag (checked in applyDamageToUnit via bossPhaseFlags)
+      if (effectName === 'absorb_first_spell') {
+        this.bossPhaseFlags[`spellAbsorb_${unit.id}`] = false; // false = not yet absorbed
       }
     }
   }
@@ -585,71 +695,111 @@ export class CombatEngine {
         // ── New named boss mechanics (Task 3) ──────────────────────────────────
       } else if (bossMechanic === 'inferno_surge') {
         this.bossSpecialTickCounter++;
-        // Telegraph on tick N, fire on tick N+1
-        if (!this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 4 === 1) {
+        // Fires every 5 ticks; telegraph 1 tick before
+        if (!this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 5 === 4) {
           this.bossPhaseFlags['surge_telegraphed'] = true;
-          globalEventBus.emit('boss:telegraph', { mechanic: 'inferno_surge', message: '⚠ Inferno Surge incoming!' });
-        } else if (this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 4 === 2) {
+          globalEventBus.emit('boss:telegraph', { mechanic: 'inferno_surge', message: `⚠ ${activeBoss.name} is preparing Inferno Surge!` });
+        } else if (this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 5 === 0) {
           this.bossPhaseFlags['surge_telegraphed'] = false;
           this.playerUnits.forEach(u => {
-            const dmg = this.applyDamageToUnit(u, 20, false, MagicSchool.Fire);
+            const dmg = this.applyDamageToUnit(u, 45, false, MagicSchool.Fire);
             globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
-            this.addStatusEffect(u.id, { type: 'burning', damagePerTick: 5, duration: 3, sourceUnitId: activeBoss.id });
+            this.addStatusEffect(u.id, { type: 'burning', damagePerTick: 8, duration: 3, sourceUnitId: activeBoss.id });
             if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
           });
         }
 
       } else if (bossMechanic === 'root_prison') {
         this.bossSpecialTickCounter++;
-        // Regen every tick via passive; Root Prison every 5 ticks
-        if (!this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
+        // Root Prison every 6 ticks; telegraph 1 tick before
+        if (!this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 6 === 5) {
           this.bossPhaseFlags['root_telegraphed'] = true;
-          globalEventBus.emit('boss:telegraph', { mechanic: 'root_prison', message: '⚠ Root Prison incoming!' });
-        } else if (this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
+          globalEventBus.emit('boss:telegraph', { mechanic: 'root_prison', message: `⚠ ${activeBoss.name} is preparing Root Prison!` });
+        } else if (this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 6 === 0) {
           this.bossPhaseFlags['root_telegraphed'] = false;
           this.playerUnits.forEach(u => {
             this.addStatusEffect(u.id, { type: 'rooted', damagePerTick: 0, duration: 2, sourceUnitId: activeBoss.id });
           });
+          // Boss gains +20 ATK while roots are active (2 ticks)
+          activeBoss.stats.attack += 20;
+          this.bossPhaseFlags['root_atk_buffed'] = true;
+        }
+        // Remove ATK buff after 2 ticks
+        if (this.bossPhaseFlags['root_atk_buffed']) {
+          const ticksSinceFire = this.bossSpecialTickCounter % 6;
+          if (ticksSinceFire === 2) {
+            activeBoss.stats.attack -= 20;
+            this.bossPhaseFlags['root_atk_buffed'] = false;
+          }
         }
 
       } else if (bossMechanic === 'soul_rend') {
-        this.bossSpecialTickCounter++;
-        if (!this.bossPhaseFlags['rend_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
-          this.bossPhaseFlags['rend_telegraphed'] = true;
-          globalEventBus.emit('boss:telegraph', { mechanic: 'soul_rend', message: '⚠ Soul Rend incoming!' });
-        } else if (this.bossPhaseFlags['rend_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
-          this.bossPhaseFlags['rend_telegraphed'] = false;
-          let totalDrained = 0;
-          this.playerUnits.forEach(u => {
-            if (u.stats.hp <= 0) return;
-            const drain = Math.floor(u.stats.hp * 0.20);
-            u.stats.hp -= drain;
-            totalDrained += drain;
-            globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: drain });
-            if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
-          });
-          if (totalDrained > 0) {
-            activeBoss.stats.hp = Math.min(activeBoss.stats.maxHp, activeBoss.stats.hp + totalDrained);
+        // hp_threshold trigger: fires once when boss drops to 50% HP
+        const hpPct = activeBoss.stats.hp / activeBoss.stats.maxHp;
+        if (!this.bossPhaseFlags['soul_rend_fired'] && hpPct <= 0.50) {
+          if (!this.bossPhaseFlags['rend_telegraphed']) {
+            this.bossPhaseFlags['rend_telegraphed'] = true;
+            globalEventBus.emit('boss:telegraph', { mechanic: 'soul_rend', message: `⚠ ${activeBoss.name} is preparing Soul Rend!` });
+          } else {
+            this.bossPhaseFlags['rend_telegraphed'] = false;
+            this.bossPhaseFlags['soul_rend_fired'] = true;
+            // Target highest-HP player unit: lose 40% current HP + no regen 3 ticks
+            const alivePlayers = this.playerUnits.filter(u => u.stats.hp > 0);
+            if (alivePlayers.length > 0) {
+              const target = alivePlayers.reduce((a, b) => b.stats.hp > a.stats.hp ? b : a, alivePlayers[0]);
+              const drain = Math.floor(target.stats.hp * 0.40);
+              target.stats.hp -= drain;
+              globalEventBus.emit('unit:attacked', { attacker: activeBoss, target, damage: drain });
+              // Apply a "no regen" debuff — implemented as a special status (3 ticks)
+              this.addStatusEffect(target.id, { type: 'stunned', damagePerTick: 0, duration: 3, sourceUnitId: activeBoss.id });
+              if (target.stats.hp <= 0) this.handleUnitDeath(target, activeBoss.id);
+            }
           }
         }
 
       } else if (bossMechanic === 'mana_collapse') {
         this.bossSpecialTickCounter++;
-        if (!this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
+        // Fires every 4 ticks; telegraph 1 tick before
+        if (!this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 4 === 3) {
           this.bossPhaseFlags['collapse_telegraphed'] = true;
-          globalEventBus.emit('boss:telegraph', { mechanic: 'mana_collapse', message: '⚠ Mana Collapse incoming!' });
-        } else if (this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
+          globalEventBus.emit('boss:telegraph', { mechanic: 'mana_collapse', message: `⚠ ${activeBoss.name} is preparing Mana Collapse!` });
+        } else if (this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 4 === 0) {
           this.bossPhaseFlags['collapse_telegraphed'] = false;
-          const manaLost = this.playerMana;
-          const damageTaken = Math.floor(manaLost / 10) * 5;
-          this.playerMana = 0;
-          globalEventBus.emit('player:mana_gain', { amount: -manaLost }); // visual drain
-          if (damageTaken > 0) {
-            this.playerUnits.forEach(u => {
-              const dmg = this.applyDamageToUnit(u, damageTaken, false, MagicSchool.Arcane);
-              globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
-              if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
-            });
+          let totalDrained = 0;
+          // Drain mana from all player units
+          this.playerUnits.forEach(u => {
+            if (u.stats.hp <= 0) return;
+            const drained = u.stats.mana;
+            if (drained > 0) {
+              const unitDmg = Math.floor(drained / 10) * 8;
+              u.stats.mana = 0;
+              totalDrained += drained;
+              if (unitDmg > 0) {
+                const dmg = this.applyDamageToUnit(u, unitDmg, false, MagicSchool.Arcane);
+                globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
+                if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
+              }
+            }
+          });
+          // Drain hero/global mana pool
+          const heroDrained = this.playerMana;
+          if (heroDrained > 0) {
+            totalDrained += heroDrained;
+            const heroDmg = Math.floor(heroDrained / 10) * 8;
+            this.playerMana = 0;
+            globalEventBus.emit('player:mana_gain', { amount: -heroDrained });
+            if (heroDmg > 0) {
+              this.playerUnits.forEach(u => {
+                if (u.stats.hp <= 0) return;
+                const dmg = this.applyDamageToUnit(u, heroDmg, false, MagicSchool.Arcane);
+                globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
+                if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
+              });
+            }
+          }
+          // Null Archon absorbs mana: heal 1 HP per mana gained
+          if (totalDrained > 0) {
+            activeBoss.stats.hp = Math.min(activeBoss.stats.maxHp, activeBoss.stats.hp + totalDrained);
           }
         }
       }

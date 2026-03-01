@@ -1,9 +1,10 @@
 import { Unit, MagicSchool } from '../types';
 import { ArchetypeId, SubclassId } from '../types/index';
 import { useGameStore } from '../store';
-import { generateFloor, getFloorStatMultiplier } from '../systems/ProceduralGen';
+import { generateFloor } from '../systems/ProceduralGen';
 import { CombatEngine } from '../systems/CombatEngine';
 import { globalEventBus } from '../EventBus';
+import { scaleUnitStats } from '../data/enemyScaling';
 
 interface SimResult {
     wins: number;
@@ -17,8 +18,9 @@ interface SimResult {
 export function simulateRun(
     archetypeId: ArchetypeId,
     subclassId: SubclassId,
-    difficulty: 'easy' | 'normal' | 'hard',
-    iterations: number
+    difficulty: 'easy' | 'normal' | 'hard' | 'brutal',
+    iterations: number,
+    startFloor: number = 1
 ): SimResult {
     let wins = 0;
     let losses = 0;
@@ -27,38 +29,31 @@ export function simulateRun(
     let totalTurnsToWin = 0;
 
     for (let i = 0; i < iterations; i++) {
-        useGameStore.getState().setDifficulty(difficulty);
+        useGameStore.getState().setDifficulty(difficulty as 'easy' | 'normal' | 'hard');
         useGameStore.getState().setArchetype(archetypeId, subclassId);
 
         // Clear perks and spells for baseline
         useGameStore.setState({ perkList: [], spellbook: [] });
 
         let state = useGameStore.getState();
-        let currentFloor = 1;
+        let currentFloor = startFloor;
         let runAlive = true;
         let localEnemiesDefeated = 0;
         let localTurns = 0;
 
         while (runAlive && currentFloor <= 5) {
             const map = generateFloor(currentFloor, Math.random, difficulty);
-            const mult = getFloorStatMultiplier(currentFloor);
 
-            const scaleUnit = (u: Unit): Unit => {
-                const base = u.baseStats ?? u.stats;
-                return {
-                    ...u,
-                    stats: {
-                        ...u.stats,
-                        hp: Math.round(base.hp * mult),
-                        maxHp: Math.round(base.maxHp * mult),
-                        attack: Math.round(base.attack * mult),
-                        defense: Math.round(base.defense * mult)
-                    }
-                };
-            };
+            // Use centralised scaleUnitStats so difficulty multiplier is applied
+            const scaleUnit = (u: Unit, idx: number, offsetX: number): Unit => ({
+                ...u,
+                x: offsetX,
+                z: idx - 2,
+                stats: scaleUnitStats(u.baseStats ?? u.stats, currentFloor, difficulty),
+            });
 
-            let currentHeroes = state.heroes.map((u, i) => scaleUnit({ ...u, x: -2, z: i - 2 }));
-            let currentSummons = state.summonRoster.map((u, i) => scaleUnit({ ...u, x: -1, z: i - 2 }));
+            let currentHeroes = state.heroes.map((u, i) => scaleUnit(u, i, -2));
+            let currentSummons = state.summonRoster.map((u, i) => scaleUnit(u, i, -1));
 
             for (const node of map) {
                 if (['combat', 'elite', 'boss'].includes(node.type)) {
@@ -85,7 +80,9 @@ export function simulateRun(
                         node.enemies
                     );
 
-                    engine.start();
+                    // Apply combat-start passives without setInterval
+                    // (we drive ticks manually below)
+                    engine.applyEnemyBattleStartPassives();
 
                     // tick headless
                     let ticks = 0;
@@ -164,9 +161,10 @@ if (typeof window !== 'undefined') {
         const arch = config?.archetype || 'conjurer';
         const sub = config?.subclass || 'elemental_master';
         const diff = config?.difficulty || 'normal';
+        const floor = config?.floor || 1;
 
-        console.log(`Starting real game simulation for ${arch} / ${sub} / ${diff} / ${iters} iterations...`);
-        const result = simulateRun(arch, sub, diff, iters);
+        console.log(`Starting balance simulation: ${arch}/${sub} | floor ${floor} | ${diff} | ${iters} iterations...`);
+        const result = simulateRun(arch, sub, diff, iters, floor);
 
         const report = {
             summary: result,

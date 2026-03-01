@@ -1,4 +1,16 @@
 import { Unit, MagicSchool } from '../types';
+import { EnemyPerk } from './enemyPerks';
+
+// ─── Boss ability — structured data for tick-interval / hp-threshold mechanics ─
+export interface BossAbility {
+    id: string;
+    name: string;
+    triggerOn: 'tick_interval' | 'hp_threshold' | 'combat_start';
+    triggerValue: number;   // interval ticks OR hp% threshold (0-1)
+    effect: string;         // key used in CombatEngine switch
+    description: string;
+    telegraphed: boolean;   // if true: show warning 1 tick before firing
+}
 
 export interface BossDefinition {
     unit: Unit;
@@ -8,6 +20,8 @@ export interface BossDefinition {
     introText: string;
     defeatText: string;
     maxHpReductionCap?: number;
+    ability?: BossAbility;           // structured ability data
+    curatedPerks?: EnemyPerk[];      // richer perk metadata (2-3 curated)
 }
 
 // ─── Legacy bosses (odd floors 1, 3, 5) ────────────────────────────────────
@@ -193,9 +207,18 @@ const NAMED_BOSSES: Record<number, BossDefinition> = {
             },
         ],
         specialMechanic: 'inferno_surge',
-        mechanicDescription: 'Telegraph 1 tick before: Inferno Surge hits all units for 20 Fire dmg + Burning.',
+        mechanicDescription: 'Telegraph 1 tick before: Inferno Surge hits all units for 45 Fire dmg + Burning (8 dmg/tick, 3 ticks).',
         introText: 'The Ember Warden watched the first cities burn. It did not weep. It laughed.',
         defeatText: "The Warden's flame dims. The heat recedes. Floor 2 lies open.",
+        ability: {
+            id: 'inferno_surge',
+            name: 'Inferno Surge',
+            triggerOn: 'tick_interval',
+            triggerValue: 5,
+            effect: 'inferno_surge',
+            description: 'Unleashes a massive fire burst — 45 dmg AoE to ALL player units. Apply burning (8 dmg/tick, 3 ticks).',
+            telegraphed: true,
+        },
     },
     4: {
         unit: {
@@ -226,9 +249,18 @@ const NAMED_BOSSES: Record<number, BossDefinition> = {
             },
         ],
         specialMechanic: 'root_prison',
-        mechanicDescription: 'Telegraph 1 tick before: Root Prison roots all your units for 2 ticks. Regen 8 HP/tick.',
+        mechanicDescription: 'Telegraph 1 tick before: Root Prison roots all your units for 2 ticks. Thornhide gains +20 ATK while roots active.',
         introText: 'Thornhide does not move. It does not need to. The forest comes to it.',
         defeatText: 'The ancient bark splits. Roots retract. The labyrinth yields.',
+        ability: {
+            id: 'root_prison',
+            name: 'Root Prison',
+            triggerOn: 'tick_interval',
+            triggerValue: 6,
+            effect: 'root_prison',
+            description: 'Roots ALL player units in place for 2 ticks (cannot move). Thornhide gains +20 ATK while roots are active.',
+            telegraphed: true,
+        },
     },
     6: {
         unit: {
@@ -259,9 +291,18 @@ const NAMED_BOSSES: Record<number, BossDefinition> = {
             },
         ],
         specialMechanic: 'soul_rend',
-        mechanicDescription: "Telegraph 1 tick before: Soul Rend drains 20% of each player unit's HP and heals Duskbane. Revives once at 25% HP.",
+        mechanicDescription: 'At 50% HP: Soul Rend tears the soul from the highest-HP player unit — loses 40% current HP instantly, no regen for 3 ticks.',
         introText: 'Duskbane was once a hero. It remembers nothing of that life, save the hunger.',
         defeatText: 'Duskbane dissolves into cold light. The marshes grow quiet. Floor 6 is yours.',
+        ability: {
+            id: 'soul_rend',
+            name: 'Soul Rend',
+            triggerOn: 'hp_threshold',
+            triggerValue: 0.50,
+            effect: 'soul_rend',
+            description: 'Tears the soul from the highest-HP player unit: that unit loses 40% of its current HP instantly and cannot regen for 3 ticks.',
+            telegraphed: true,
+        },
     },
     8: {
         unit: {
@@ -292,9 +333,18 @@ const NAMED_BOSSES: Record<number, BossDefinition> = {
             },
         ],
         specialMechanic: 'mana_collapse',
-        mechanicDescription: 'Telegraph 1 tick before: Mana Collapse zeroes all player mana and deals 5 dmg per 10 mana lost. Absorbs first spell each battle.',
+        mechanicDescription: 'Telegraph 1 tick before: Mana Collapse drains ALL mana — deals 8 dmg per 10 mana drained. Null Archon heals 1 HP per mana absorbed.',
         introText: 'The Null Archon erased its own name to become perfect. It serves no one.',
         defeatText: "The Archon's null-field collapses. Mana floods back. The Codex's final lock shatters.",
+        ability: {
+            id: 'mana_collapse',
+            name: 'Mana Collapse',
+            triggerOn: 'tick_interval',
+            triggerValue: 4,
+            effect: 'mana_collapse',
+            description: 'Drains ALL mana from ALL player units and the hero. For each 10 mana drained: deal 8 dmg to that unit. Null Archon absorbs the mana and heals 1 HP per mana gained.',
+            telegraphed: true,
+        },
     },
 };
 
@@ -303,3 +353,10 @@ export const BOSSES: Record<number, BossDefinition> = {
     ...LEGACY_BOSSES,
     ...NAMED_BOSSES,
 };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Returns the BossDefinition for a given floor, or null if none exists. */
+export function getBossForFloor(floor: number): BossDefinition | null {
+    return BOSSES[floor] ?? null;
+}
