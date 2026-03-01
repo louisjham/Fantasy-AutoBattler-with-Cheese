@@ -4,6 +4,9 @@ const args = process.argv.slice(2);
 const iterations = parseInt(args[0]) || 1;
 const verbose = args.includes('--verbose');
 const floor = parseInt(args.find(a => a.startsWith('--floor='))?.split('=')[1] || '1');
+const archetype = args.find(a => a.startsWith('--arch='))?.split('=')[1] || 'conjurer';
+const subclass = args.find(a => a.startsWith('--sub='))?.split('=')[1] || 'elemental_master';
+const difficulty = args.find(a => a.startsWith('--diff='))?.split('=')[1] || 'normal';
 const MAX_WAIT_MS = 120_000;
 
 async function runBalance() {
@@ -24,7 +27,7 @@ async function runBalance() {
         await page.waitForTimeout(2000);
 
         // Patch console + run workflow
-        await page.evaluate(({ iterations, verbose, floor }) => {
+        await page.evaluate(({ iterations, verbose, floor, archetype, subclass, difficulty }) => {
             const _orig = console.log;
             const _origTable = console.table;
 
@@ -39,8 +42,8 @@ async function runBalance() {
                 _orig('\n=== SUMMARY TABLE ===');
                 _orig(...args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)));
             };
-            (window as any).__runBalanceWorkflow({ iterations, logVerbose: verbose, floor });
-        }, { iterations, verbose, floor });
+            (window as any).__runBalanceWorkflow({ iterations, logVerbose: verbose, floor, archetype, subclass, difficulty });
+        }, { iterations, verbose, floor, archetype, subclass, difficulty });
 
         // Wait for report (with timeout)
         await page.waitForFunction(

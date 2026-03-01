@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useGameStore } from '../../store';
 import { SCHOOL_COLORS } from '../../constants';
+import { getUnitIcon, makeImgFallback } from '../../utils/assetHelper';
 
 interface SummonBarProps {
   playerMana: number;
@@ -15,10 +16,10 @@ export default function SummonBar({ playerMana, onSummon, activeUnitCount, onFie
   // Find cheapest available summons not already on field
   const availableSummons = useMemo(() => {
     const available = summonRoster.filter(s => !onFieldIds.has(s.id));
-    
+
     // Sort by mana cost ascending
     available.sort((a, b) => (a.manaCost || 0) - (b.manaCost || 0));
-    
+
     // Return top 3
     return available.slice(0, 3);
   }, [summonRoster, onFieldIds]);
@@ -35,17 +36,26 @@ export default function SummonBar({ playerMana, onSummon, activeUnitCount, onFie
         availableSummons.map((summon) => {
           const cost = summon.manaCost || 0;
           const canAfford = playerMana >= cost;
-          
+
           return (
-            <button 
+            <button
               key={summon.id}
               onClick={() => onSummon(summon.id)}
               disabled={!canAfford}
-              className="w-24 h-12 bg-zinc-900 border-2 rounded flex flex-col items-center justify-center text-white hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+              className="w-24 h-16 bg-zinc-900 border-2 rounded flex flex-col items-center justify-center text-white hover:bg-zinc-800 disabled:opacity-50 transition-colors relative overflow-hidden"
               style={{ borderColor: SCHOOL_COLORS[summon.school], fontFamily: "'Press Start 2P', monospace", fontSize: '8px' }}
             >
+              {/* Unit thumbnail */}
+              <div className="relative w-6 h-6 mb-0.5 rounded overflow-hidden flex-shrink-0">
+                <img
+                  src={getUnitIcon(summon.id)}
+                  onError={makeImgFallback(summon.school, summon.name)}
+                  alt={summon.name}
+                  className="w-full h-full object-cover"
+                />
+              </div>
               <span className="truncate w-full text-center px-1">{summon.name}</span>
-              <span className={canAfford ? 'text-blue-400 mt-1' : 'text-red-400 mt-1'}>{cost} MP</span>
+              <span className={canAfford ? 'text-blue-400 mt-0.5' : 'text-red-400 mt-0.5'}>{cost} MP</span>
             </button>
           );
         })

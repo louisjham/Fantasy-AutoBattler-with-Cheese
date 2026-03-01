@@ -1,8 +1,10 @@
-import { Unit, MagicSchool, UnitStats } from '../types';
+import { Unit, MagicSchool, UnitStats, Spell } from '../types';
 import { globalEventBus } from '../EventBus';
 import { TICK_MS, MANA_REGEN } from '../constants';
 import { calculateSynergies, ActiveSynergy } from './SynergySystem';
 import { useGameStore } from '../store';
+import { PerkEngine } from './PerkEngine';
+import { SpellEngine } from './SpellEngine';
 
 export interface StatusEffect {
   type: 'burning' | 'poisoned' | 'frozen' | 'stunned' | 'regen' | 'rooted';
@@ -19,6 +21,17 @@ export class CombatEngine {
   private statusEffects: Map<string, StatusEffect[]> = new Map();
   private revivedUnits: Set<string> = new Set();
   private playerSynergies: ActiveSynergy[] = [];
+
+  // Archetype Mechanics State
+  public zombieSpawnTimer: number = 0;
+  public zombieSlayerCount: number = 0;
+  public grandRiteTimer: number = 0;
+  public grandRiteReady: boolean = false;
+  public hydraHeadIndex: number = 0;
+  public activeRunes: { type: string, position: any, ticksActive: number }[] = [];
+  public transformActive: 'forest_god' | 'primal_bear' | null = null;
+  public transformTicksRemaining: number = 0;
+  public usedNecronomiconSpells: Set<string> = new Set();
 
   public tempStatModifiers: Map<string, Record<string, number>> = new Map();
   private boneshieldActive: Set<string> = new Set();
@@ -88,23 +101,14 @@ export class CombatEngine {
   }
 
   private handleSpellCast = (payload: unknown) => {
-    const spellPayload = payload as { spell?: { manaCost?: number, effect?: string, name?: string } };
+    const spellPayload = payload as { spell?: Spell };
     if (spellPayload.spell && spellPayload.spell.manaCost) {
       this.playerMana = Math.max(0, this.playerMana - spellPayload.spell.manaCost);
+      // Execute spell logic dynamically
+      SpellEngine.executeSpell(spellPayload.spell, this);
     }
 
     const arcaneSynergy = this.playerSynergies.find(s => s.school === MagicSchool.Arcane);
-
-    // Spell crit chance perk 'spell_crit_chance'
-    if (this.hasPlayerPerk('spell_crit_chance') && spellPayload.spell && spellPayload.spell.effect) {
-      if (Math.random() < 0.25) {
-        // Since CombatEngine isn't strictly processing the spell's damage (the store / battle UI does),
-        // we can emit a spell critical event for the UI or handle damage locally if we had direct spell execution here.
-        // Given the instructions, we should just emit or log it, but the prompt says:
-        // "When a spell is cast: 25% chance to double its damage value". We'll update the spell payload in place or broadcast.
-        // Without full spell execution logic here, we'll log it for now.
-      }
-    }
 
     if (arcaneSynergy && arcaneSynergy.tier >= 3) {
       if (Math.random() < 0.3) {
@@ -121,6 +125,7 @@ export class CombatEngine {
     if (this.isRunning) return;
     this.isRunning = true;
     this.tempStatModifiers.clear();
+    PerkEngine.applyCombatStartPerks(this);
     this.intervalId = setInterval(() => this.tick(), TICK_MS) as unknown as number;
   }
 
@@ -224,8 +229,16 @@ export class CombatEngine {
         const maxDamageCanAbsorb = Math.floor(this.playerMana / 2);
         const damageToAbsorb = Math.min(finalDamage, maxDamageCanAbsorb);
         this.playerMana -= damageToAbsorb * 2;
-        // Don't emit event for deduction since Battle.tsx doesn't listen to mana_drain, but standard mana sync could be assumed or ignored visually
         finalDamage -= damageToAbsorb;
+      }
+    }
+
+    // Arcanist Arcane Aegis: check if Arcanist takes death blow but has > 30 mana
+    if (!isPlayerAttack && unit.isHero && unit.subclass === 'arcanist' && this.hasPlayerPerk('arcane_aegis')) {
+      if (unit.stats.hp - finalDamage <= 0 && this.playerMana >= 30) {
+        this.playerMana -= 30;
+        finalDamage = 0;
+        unit.stats.hp = Math.floor(unit.stats.maxHp * 0.5); // heal 50%
       }
     }
 
@@ -240,6 +253,130 @@ export class CombatEngine {
 
   private tick() {
     if (!this.isRunning) return;
+
+    PerkEngine.applyTickPerks(this);
+
+    const state = useGameStore.getState();
+    const isArcanist = state.selectedArchetype === 'mystic' && state.selectedSubclass === 'arcanist';
+    const isDeathlord = state.selectedArchetype === 'warlord' && state.selectedSubclass === 'deathlord';
+    const isSeer = state.selectedArchetype === 'mystic' && state.selectedSubclass === 'seer';
+    const isRunelord = state.selectedArchetype === 'mystic' && state.selectedSubclass === 'runelord';
+    const isBeastConjurer = state.selectedArchetype === 'conjurer' && state.selectedSubclass === 'beast_conjurer';
+
+    // Arcanist: Mana Mastery
+    if (isArcanist && this.hasPlayerPerk('overflow_mana_to_damage')) {
+      const overflow = this.playerMana - 100;
+      if (overflow > 0) {
+        const dmg = Math.min(overflow, 40);
+        const aliveEnemies = this.enemyUnits.filter(e => e.stats.hp > 0);
+        if (aliveEnemies.length > 0) {
+          let target = aliveEnemies[0];
+          for (const e of aliveEnemies) {
+            if (e.stats.hp < target.stats.hp) target = e;
+          }
+          target.stats.hp -= dmg;
+          globalEventBus.emit('synergy:trigger', { school: MagicSchool.Arcane });
+          if (target.stats.hp <= 0) this.handleUnitDeath(target, 'mana_mastery');
+        }
+        this.playerMana = 100;
+      }
+    }
+
+    // Deathlord: Zombie Spawn Loop
+    if (isDeathlord) {
+      this.zombieSpawnTimer++;
+      const interval = this.hasPlayerPerk('double_zombie_spawn_rate_temp') && this.tempStatModifiers.has('death_rising') ? 2 : 4;
+      if (this.zombieSpawnTimer % interval === 0 && this.zombieSlayerCount < 8) {
+        this.addSummon({
+          id: `zombie_slayer_${Date.now()}_${Math.random()}`,
+          name: 'Zombie Slayer',
+          school: MagicSchool.Death,
+          tier: 1,
+          stats: { hp: 50, maxHp: 50, attack: 14, defense: 3, speed: 1, mana: 0, maxMana: 0 },
+          baseStats: { hp: 50, maxHp: 50, attack: 14, defense: 3, speed: 1, mana: 0, maxMana: 0 },
+          passives: [],
+          position: 4 as any,
+          isHero: false,
+          isSummon: true,
+          spriteColor: 'darkgreen',
+          meshType: 'box',
+          weapon: null,
+          armor: null,
+          level: 1,
+          xp: 0,
+          subclass: 'deathlord'
+        });
+        this.zombieSlayerCount++;
+      }
+    }
+
+    // Beast Conjurer: Transforms tick
+    if (isBeastConjurer && this.transformActive) {
+      this.transformTicksRemaining--;
+      if (this.transformTicksRemaining <= 0) {
+        this.transformActive = null;
+      }
+      const hero = this.playerUnits.find(u => u.isHero && u.subclass === 'beast_conjurer');
+      if (hero && hero.stats.hp < hero.stats.maxHp * 0.2 && this.hasPlayerPerk('transform_primal_bear') && !this.transformActive) {
+        this.transformActive = 'primal_bear';
+        this.transformTicksRemaining = 6;
+        hero.stats.attack = Math.floor(hero.stats.attack * 1.6);
+      }
+    }
+
+    // Arcanist: Grand Rite
+    if (isArcanist && this.hasPlayerPerk('channel_mega_spell_free')) {
+      this.grandRiteTimer++;
+      if (this.grandRiteTimer % 5 === 0 && this.grandRiteTimer > 0) {
+        this.grandRiteReady = true;
+      }
+    }
+
+    // Seer: Foresight
+    if (isSeer && this.hasPlayerPerk('preview_enemy_next_action')) {
+      const aliveEnemies = this.enemyUnits.filter(e => e.stats.hp > 0);
+      const alivePlayers = this.playerUnits.filter(p => p.stats.hp > 0);
+      for (const enemy of aliveEnemies) {
+        const predictedAction = {
+          actionType: 'attack',
+          targetId: alivePlayers[0]?.id
+        };
+        globalEventBus.emit('seer:foresight_update', { enemyId: enemy.id, predictedAction });
+      }
+    }
+
+    // Runelord: Runes
+    if (isRunelord) {
+      const aliveEnemies = this.enemyUnits.filter(e => e.stats.hp > 0);
+      const alivePlayers = this.playerUnits.filter(p => p.stats.hp > 0);
+      for (const enemy of aliveEnemies) {
+        for (let i = this.activeRunes.length - 1; i >= 0; i--) {
+          const rune = this.activeRunes[i];
+          if (rune.type === 'runebind') {
+            this.addStatusEffect(enemy.id, { type: 'stunned', damagePerTick: 0, duration: 1, sourceUnitId: 'rune' });
+            enemy.stats.hp -= 12;
+            if (enemy.stats.hp <= 0) this.handleUnitDeath(enemy, 'rune');
+            this.activeRunes.splice(i, 1);
+          }
+        }
+      }
+      if (state.runeStacks >= 3) {
+        if (this.hasPlayerPerk('mega_trigger_bonus')) {
+          for (const p of alivePlayers) {
+            const mods = this.tempStatModifiers.get(p.id) || {};
+            mods.attack = (mods.attack || 0) + 20;
+            this.tempStatModifiers.set(p.id, mods);
+          }
+          for (const e of aliveEnemies) {
+            const mods = this.tempStatModifiers.get(e.id) || {};
+            mods.speed = Math.max(0, (mods.speed || e.stats.speed) * 0.5);
+            this.tempStatModifiers.set(e.id, mods);
+          }
+        }
+        useGameStore.setState({ runeStacks: 0 });
+        this.activeRunes = [];
+      }
+    }
 
     // Mirrored player mana regen explicitly
     this.playerMana = Math.min(100, this.playerMana + MANA_REGEN);
@@ -431,6 +568,28 @@ export class CombatEngine {
         }
 
         let baseDamage = Math.max(1, unit.stats.attack - Math.max(0, effectiveDefense));
+
+        // Hydra head rotation
+        if (unit.id.includes('three_headed_hydra')) {
+          switch (this.hydraHeadIndex) {
+            case 0: // fire
+              baseDamage = Math.max(1, 30 - Math.max(0, effectiveDefense));
+              this.addStatusEffect(target.id, { type: 'burning', damagePerTick: 8, duration: 3, sourceUnitId: unit.id });
+              break;
+            case 1: // acid
+              baseDamage = Math.max(1, 25 - Math.max(0, effectiveDefense));
+              effectiveDefense = Math.max(0, effectiveDefense - 3);
+              const tMods = this.tempStatModifiers.get(target.id) || {};
+              tMods.defense = (tMods.defense || 0) - 3;
+              this.tempStatModifiers.set(target.id, tMods);
+              break;
+            case 2: // sonic
+              baseDamage = Math.max(1, 20 - Math.max(0, effectiveDefense));
+              this.addStatusEffect(target.id, { type: 'stunned', damagePerTick: 0, duration: 1, sourceUnitId: unit.id });
+              break;
+          }
+          this.hydraHeadIndex = (this.hydraHeadIndex + 1) % 3;
+        }
 
         if (isPlayer && unit.school === MagicSchool.Fire && this.hasPlayerPerk('fire_damage_bonus')) {
           baseDamage = Math.floor(baseDamage * 1.25);

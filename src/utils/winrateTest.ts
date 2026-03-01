@@ -1,4 +1,5 @@
-import { PlayerArchetype, Unit, MagicSchool } from '../types';
+import { Unit, MagicSchool } from '../types';
+import { ArchetypeId, SubclassId } from '../types/index';
 import { useGameStore } from '../store';
 import { generateFloor, getFloorStatMultiplier } from '../systems/ProceduralGen';
 import { CombatEngine } from '../systems/CombatEngine';
@@ -14,7 +15,8 @@ interface SimResult {
 }
 
 export function simulateRun(
-    archetype: PlayerArchetype,
+    archetypeId: ArchetypeId,
+    subclassId: SubclassId,
     difficulty: 'easy' | 'normal' | 'hard',
     iterations: number
 ): SimResult {
@@ -26,7 +28,7 @@ export function simulateRun(
 
     for (let i = 0; i < iterations; i++) {
         useGameStore.getState().setDifficulty(difficulty);
-        useGameStore.getState().setArchetype(archetype);
+        useGameStore.getState().setArchetype(archetypeId, subclassId);
 
         // Clear perks and spells for baseline
         useGameStore.setState({ perkList: [], spellbook: [] });
@@ -157,10 +159,21 @@ export function simulateRun(
 }
 
 if (typeof window !== 'undefined') {
-    (window as any).__testWinrate = () => {
-        console.log("Starting simulation for Conjurer / Normal / 100 iterations...");
-        const result = simulateRun(PlayerArchetype.Conjurer, 'normal', 100);
-        console.table(result);
-        return result;
+    (window as any).__runBalanceWorkflow = (config?: any) => {
+        const iters = config?.iterations || 100;
+        const arch = config?.archetype || 'conjurer';
+        const sub = config?.subclass || 'elemental_master';
+        const diff = config?.difficulty || 'normal';
+
+        console.log(`Starting real game simulation for ${arch} / ${sub} / ${diff} / ${iters} iterations...`);
+        const result = simulateRun(arch, sub, diff, iters);
+
+        const report = {
+            summary: result,
+            mvp: {},
+            recommendations: []
+        };
+        (window as any).__lastBalanceReport = report;
+        return report;
     };
 }

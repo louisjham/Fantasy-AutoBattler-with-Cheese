@@ -1,11 +1,46 @@
 import { create } from 'zustand';
 import { RunState, Perk, Spell, Unit, PlayerArchetype, MagicSchool, Weapon, Armor, InventoryItem, Consumable, RunStats } from './types';
+import { ArchetypeId, SubclassId, SubclassDefinition } from './types/index';
 import { generateFloor, getFloorStatMultiplier } from './systems/ProceduralGen';
 import { SUMMONS } from './data/units';
+import { WARLORD_PERKS, WARLORD_SPELLS, WARLORD_UNITS } from './data/warlord';
+import { CONJURER_PERKS, CONJURER_SPELLS, CONJURER_UNITS } from './data/conjurer';
+import { MYSTIC_PERKS, MYSTIC_SPELLS, MYSTIC_UNITS } from './data/mystic';
+
+export interface RuneInstance {
+  type: string;
+  position: number;
+  ticksActive: number;
+}
+
+export interface ActionLog {
+  actionType: 'attack' | 'spell' | 'move' | 'wait';
+  targetId?: string;
+  spellId?: string;
+  position?: number;
+}
 
 interface GameState extends RunState {
+  selectedArchetype: ArchetypeId | null;
+  selectedSubclass: SubclassId | null;
+  activeSubclassDef: SubclassDefinition | null;
+
+  zombieSlayerCount: number;
+  zombieSpawnTimer: number;
+  manaOverflowActive: boolean;
+  arcane_surgeStacks: number;
+  runeStacks: number;
+  activeRunes: RuneInstance[];
+  permanentSigilRune: string | null;
+  transformActive: 'forest_god' | 'primal_bear' | null;
+  transformTicksRemaining: number;
+  foresightData: Map<string, ActionLog>;
+
+  selectStartingPerks: (perkIds: string[]) => void;
+  selectStartingSpells: (spellIds: string[]) => void;
   setDifficulty: (difficulty: 'easy' | 'normal' | 'hard') => void;
-  setArchetype: (archetype: PlayerArchetype) => void;
+  setArchetype: (archetypeId: ArchetypeId, subclassId: SubclassId, element?: MagicSchool) => void;
+
   addPerk: (perk: Perk) => void;
   addSpell: (spell: Spell) => void;
   addSummon: (summon: Unit) => void;
@@ -54,153 +89,164 @@ const initialRunState: RunState = {
 
 export const useGameStore = create<GameState>((set) => ({
   ...initialRunState,
+  selectedArchetype: null,
+  selectedSubclass: null,
+  activeSubclassDef: null,
+  zombieSlayerCount: 0,
+  zombieSpawnTimer: 0,
+  manaOverflowActive: false,
+  arcane_surgeStacks: 0,
+  runeStacks: 0,
+  activeRunes: [],
+  permanentSigilRune: null,
+  transformActive: null,
+  transformTicksRemaining: 0,
+  foresightData: new Map(),
 
   setDifficulty: (difficulty) => set({ difficulty }),
 
-  setArchetype: (archetype) => {
-    let maxHeroSlots = 3;
-    let maxSummonSlots = 3;
-    let startingSpell: Spell | null = null;
-    let startingPerk: Perk | null = null;
-    let heroes: Unit[] = [];
-    let summonRoster: Unit[] = [];
+  setArchetype: (archetypeId, subclassId, element) => {
+    let perks: any[] = [];
+    let spells: any[] = [];
+    let units: any[] = [];
 
-    const getSummon = (id: string, suffix: string = '') => {
-      const base = SUMMONS.find(s => s.id === id);
-      if (!base) return null;
-      return { ...base, id: `${id}_${Date.now()}${suffix}` };
-    };
-
-    if (archetype === PlayerArchetype.Conjurer) {
-      maxHeroSlots = 3;
-      maxSummonSlots = 6;
-      startingSpell = {
-        id: 'conjure_familiar',
-        name: 'Conjure Familiar',
-        school: MagicSchool.Arcane,
-        manaCost: 2,
-        effect: 'summon_arcane_imp',
-        tags: ['summon'],
-        description: 'Summon an Arcane imp.'
-      };
-      startingPerk = {
-        id: 'blood_pact',
-        name: 'Blood Pact',
-        description: 'Gain 5 mana when a summon dies.',
-        school: MagicSchool.Death,
-        effect: 'mana_on_summon_death_5'
-      };
-      heroes = [{
-        id: 'conjurer_hero', name: 'The Conjurer', school: MagicSchool.Arcane, isHero: true, isSummon: false,
-        tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 5, meshType: 'octahedron', spriteColor: '#2244FF',
-        stats: { hp: 450, maxHp: 450, attack: 30, defense: 12, speed: 1, mana: 30, maxMana: 100 }, passives: []
-      }];
-      summonRoster = [
-        getSummon('skeleton_warrior', '_1'),
-        getSummon('skeleton_warrior', '_2'),
-        getSummon('ember_imp'),
-        getSummon('thorn_sprite'),
-        getSummon('mana_familiar')
-      ].filter(Boolean) as Unit[];
-
-    } else if (archetype === PlayerArchetype.Warlord) {
-      maxHeroSlots = 6;
-      maxSummonSlots = 3;
-      startingSpell = {
-        id: 'war_cry',
-        name: 'War Cry',
-        school: MagicSchool.Fire,
-        manaCost: 3,
-        effect: 'buff_attack_allies_30_3',
-        tags: ['buff'],
-        description: 'All allies +30% attack for 3 ticks.'
-      };
-      startingPerk = {
-        id: 'bloodthirst',
-        name: 'Bloodthirst',
-        description: 'Heroes gain 5 HP on kill.',
-        school: MagicSchool.Fire,
-        effect: 'heal_on_kill_5'
-      };
-      heroes = [
-        {
-          id: 'warlord_hero_1', name: 'Iron Guard', school: MagicSchool.Fire, isHero: true, isSummon: false,
-          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 7, meshType: 'box', spriteColor: '#FF4422',
-          stats: { hp: 120, maxHp: 120, attack: 18, defense: 10, speed: 1, mana: 0, maxMana: 100 }, passives: []
-        },
-        {
-          id: 'warlord_hero_2', name: 'Battle Mage', school: MagicSchool.Arcane, isHero: true, isSummon: false,
-          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 8, meshType: 'octahedron', spriteColor: '#2244FF',
-          stats: { hp: 85, maxHp: 85, attack: 15, defense: 6, speed: 2, mana: 40, maxMana: 100 }, passives: []
-        },
-        {
-          id: 'warlord_hero_3', name: 'Scout', school: MagicSchool.Nature, isHero: true, isSummon: false,
-          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 9, meshType: 'cylinder', spriteColor: '#33AA44',
-          stats: { hp: 70, maxHp: 70, attack: 16, defense: 5, speed: 3, mana: 0, maxMana: 100 }, passives: []
-        }
-      ];
-      summonRoster = [
-        getSummon('forest_wolf'),
-        getSummon('shield_bearer'),
-        getSummon('ember_imp')
-      ].filter(Boolean) as Unit[];
-
-    } else if (archetype === PlayerArchetype.Mystic) {
-      maxHeroSlots = 4;
-      maxSummonSlots = 5;
-      startingSpell = {
-        id: 'arcane_surge',
-        name: 'Arcane Surge',
-        school: MagicSchool.Arcane,
-        manaCost: 0,
-        effect: 'gain_mana_15',
-        tags: ['mana'],
-        description: 'Gain 15 mana instantly.'
-      };
-      startingPerk = {
-        id: 'spell_echo',
-        name: 'Spell Echo',
-        description: '20% chance any spell fires twice.',
-        school: MagicSchool.Arcane,
-        effect: 'spell_echo_20'
-      };
-      heroes = [
-        {
-          id: 'mystic_hero_1', name: 'The Mystic', school: MagicSchool.Arcane, isHero: true, isSummon: false,
-          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 5, meshType: 'octahedron', spriteColor: '#2244FF',
-          stats: { hp: 75, maxHp: 75, attack: 10, defense: 5, speed: 1, mana: 60, maxMana: 100 }, passives: []
-        },
-        {
-          id: 'mystic_hero_2', name: 'Apprentice', school: MagicSchool.Life, isHero: true, isSummon: false,
-          tier: 1, level: 1, xp: 0, subclass: null, weapon: null, armor: null, position: 6, meshType: 'cylinder', spriteColor: '#FFCC00',
-          stats: { hp: 65, maxHp: 65, attack: 9, defense: 6, speed: 2, mana: 40, maxMana: 100 }, passives: []
-        }
-      ];
-      summonRoster = [
-        getSummon('mana_familiar'),
-        getSummon('arcane_turret'),
-        getSummon('acolyte'),
-        getSummon('celestial_wisp'),
-        getSummon('thorn_sprite')
-      ].filter(Boolean) as Unit[];
+    if (archetypeId === 'warlord') {
+      perks = WARLORD_PERKS.filter(p => p.subclass === subclassId || p.subclass === 'base');
+      spells = WARLORD_SPELLS.filter(s => s.subclass === subclassId || s.subclass === 'base');
+      units = WARLORD_UNITS.filter(u => u.id !== 'zombie_slayer'); // Spawned later
+    } else if (archetypeId === 'conjurer') {
+      perks = CONJURER_PERKS.filter(p => p.subclass === subclassId || p.subclass === 'base');
+      spells = CONJURER_SPELLS.filter(s => s.subclass === subclassId || s.subclass === 'base');
+      units = CONJURER_UNITS;
+    } else if (archetypeId === 'mystic') {
+      perks = MYSTIC_PERKS.filter(p => p.subclass === subclassId || p.subclass === 'base');
+      spells = MYSTIC_SPELLS.filter(s => s.subclass === subclassId || s.subclass === 'base');
+      units = MYSTIC_UNITS;
     }
 
-    heroes = heroes.map(h => ({ ...h, baseStats: { ...h.stats } }));
-    summonRoster = summonRoster.map(s => ({ ...s, baseStats: { ...s.stats } }));
+    const startingSpellsList = spells.map(s => ({
+      id: s.id,
+      name: s.name,
+      school: s.school,
+      manaCost: s.manaCost,
+      effect: s.effect,
+      tags: [],
+      description: s.description
+    }));
+
+    const startingPerkList = perks.slice(0, 2).map(p => ({
+      id: p.id,
+      name: p.name,
+      school: p.school,
+      effect: p.effect,
+      description: p.description
+    }));
+
+    const companionsIds = ['giant_armored_lizard', 'greater_daemon', 'black_dragon', 'monstrous_flesh_golem', 'primal_elemental', 'three_headed_hydra', 'forge_spirit', 'astral_phoenix', 'voidwalker_shade', 'ancient_stone_sentinel'];
+    const startingUnitsTpl = units.filter(u => !companionsIds.includes(u.id as string));
+    const companionTpl = units.find(u => companionsIds.includes(u.id as string));
+
+    const mapUnit = (tpl: any, i: number, isCompanion: boolean): Unit => {
+      let sch = tpl.school;
+      if (archetypeId === 'conjurer' && subclassId === 'elemental_master' && element) {
+        if (tpl.id === 'elemental_adept' || tpl.id === 'primal_elemental') sch = element;
+      }
+      return {
+        id: `${tpl.id}_${Date.now()}_${i}`,
+        name: tpl.name,
+        school: sch,
+        tier: tpl.tier,
+        stats: { ...tpl.stats },
+        baseStats: { ...tpl.stats },
+        passives: [...(tpl.passives || [])],
+        position: 5 + i as any,
+        isHero: false,
+        isSummon: true,
+        spriteColor: tpl.spriteColor,
+        meshType: tpl.meshType,
+        weapon: null,
+        armor: null,
+        level: 1,
+        xp: 0,
+        subclass: subclassId,
+        manaCost: 0,
+        ...(isCompanion ? { isCompanion: true } : {})
+      } as unknown as Unit;
+    };
+
+    let summonRoster = startingUnitsTpl.map((u, i) => mapUnit(u, i, false));
+    if (companionTpl) summonRoster.push(mapUnit(companionTpl, 99, true));
+
+    let heroSchool = MagicSchool.Fire;
+    if (archetypeId === 'conjurer') heroSchool = MagicSchool.Arcane;
+    if (archetypeId === 'mystic') heroSchool = MagicSchool.Arcane;
+
+    const hero: Unit = {
+      id: `${archetypeId}_hero`, name: `The ${archetypeId.charAt(0).toUpperCase() + archetypeId.slice(1)}`,
+      school: heroSchool, isHero: true, isSummon: false, tier: 1, level: 1, xp: 0,
+      subclass: subclassId, weapon: null, armor: null, position: 5, meshType: 'octahedron',
+      spriteColor: '#2244FF', stats: { hp: 100, maxHp: 100, attack: 20, defense: 10, speed: 1, mana: 50, maxMana: 100 },
+      baseStats: { hp: 100, maxHp: 100, attack: 20, defense: 10, speed: 1, mana: 50, maxMana: 100 },
+      passives: []
+    };
+
+    let pArchetype = PlayerArchetype.Warlord;
+    if (archetypeId === 'conjurer') pArchetype = PlayerArchetype.Conjurer;
+    if (archetypeId === 'mystic') pArchetype = PlayerArchetype.Mystic;
 
     set({
-      archetype,
-      maxHeroSlots,
-      maxSummonSlots,
-      heroes,
+      selectedArchetype: archetypeId,
+      selectedSubclass: subclassId,
+      archetype: pArchetype,
+      maxHeroSlots: 1,
+      maxSummonSlots: 8,
+      heroes: [hero],
       summonRoster,
-      spellbook: startingSpell ? [startingSpell] : [],
-      perkList: startingPerk ? [startingPerk] : []
+      spellbook: startingSpellsList,
+      perkList: startingPerkList,
+      zombieSpawnTimer: 0,
+      zombieSlayerCount: 0
     });
 
     // Call initializeRun to set up the map and other initial state
     useGameStore.getState().initializeRun();
   },
+
+  selectStartingPerks: (perkIds) => set((state) => {
+    let allPerks: any[] = [];
+    if (state.selectedArchetype === 'warlord') allPerks = WARLORD_PERKS;
+    else if (state.selectedArchetype === 'conjurer') allPerks = CONJURER_PERKS;
+    else if (state.selectedArchetype === 'mystic') allPerks = MYSTIC_PERKS;
+
+    const chosen = allPerks.filter(p => perkIds.includes(p.id)).map(p => ({
+      id: p.id,
+      name: p.name,
+      school: p.school,
+      effect: p.effect,
+      description: p.description
+    }));
+
+    return { perkList: chosen };
+  }),
+
+  selectStartingSpells: (spellIds) => set((state) => {
+    let allSpells: any[] = [];
+    if (state.selectedArchetype === 'warlord') allSpells = WARLORD_SPELLS;
+    else if (state.selectedArchetype === 'conjurer') allSpells = CONJURER_SPELLS;
+    else if (state.selectedArchetype === 'mystic') allSpells = MYSTIC_SPELLS;
+
+    const chosen = allSpells.filter(s => spellIds.includes(s.id)).map(s => ({
+      id: s.id,
+      name: s.name,
+      school: s.school,
+      manaCost: s.manaCost,
+      effect: s.effect,
+      tags: [],
+      description: s.description
+    }));
+
+    return { spellbook: chosen };
+  }),
 
   addPerk: (perk) => set((state) => ({
     perkList: [...state.perkList, perk]

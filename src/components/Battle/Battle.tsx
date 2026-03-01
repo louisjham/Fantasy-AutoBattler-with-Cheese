@@ -10,6 +10,7 @@ import { createUnit } from '../../data/units';
 import SynergyHUD from '../HUD/SynergyHUD';
 import SummonBar from '../HUD/SummonBar';
 import { ActiveSynergy } from '../../systems/SynergySystem';
+import { getBackground } from '../../utils/assetHelper';
 
 interface BattleProps {
   onWin: () => void;
@@ -96,14 +97,46 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     const unitUIs: Record<string, { container: Rectangle, hpBar: Rectangle }> = {};
 
     const createUnitMesh = (unit: Unit) => {
+      // School emissive color map
+      const SCHOOL_EMISSIVE: Record<string, [number, number, number]> = {
+        Fire: [0.75, 0.22, 0.17],
+        Nature: [0.15, 0.68, 0.38],
+        Death: [0.42, 0.20, 0.51],
+        Arcane: [0.18, 0.52, 0.76],
+        Life: [0.94, 0.70, 0.48],
+        ice: [0.36, 0.68, 0.87],
+        lightning: [0.95, 0.82, 0.25],
+        earth: [0.49, 0.40, 0.04],
+      };
+
       let mesh;
+      const baseSize = 1.5;
+      const unitScale = unit.scale ?? 1.0;
+
       switch (unit.meshType) {
-        case 'box': mesh = MeshBuilder.CreateBox(unit.id, { size: 1.5 }, scene); break;
-        case 'octahedron': mesh = MeshBuilder.CreatePolyhedron(unit.id, { type: 1, size: 1 }, scene); break; // Octahedron
-        case 'tetrahedron': mesh = MeshBuilder.CreatePolyhedron(unit.id, { type: 0, size: 1 }, scene); break; // Tetrahedron
-        case 'cylinder': mesh = MeshBuilder.CreateCylinder(unit.id, { diameter: 1, height: 2 }, scene); break;
-        case 'boss': mesh = MeshBuilder.CreateTorusKnot(unit.id, { radius: 1, tube: 0.4 }, scene); break;
-        default: mesh = MeshBuilder.CreateBox(unit.id, { size: 1.5 }, scene);
+        case 'box':
+          mesh = MeshBuilder.CreateBox(unit.id, { size: baseSize }, scene); break;
+        case 'cone':
+          mesh = MeshBuilder.CreateCylinder(unit.id, { diameterTop: 0, diameterBottom: baseSize, height: baseSize * 1.4, tessellation: 12 }, scene); break;
+        case 'sphere':
+          mesh = MeshBuilder.CreateSphere(unit.id, { diameter: baseSize, segments: 10 }, scene); break;
+        case 'torus':
+          mesh = MeshBuilder.CreateTorus(unit.id, { diameter: baseSize, thickness: 0.45, tessellation: 16 }, scene); break;
+        case 'cylinder':
+          mesh = MeshBuilder.CreateCylinder(unit.id, { diameter: 1, height: 2 }, scene); break;
+        case 'octahedron':
+          mesh = MeshBuilder.CreatePolyhedron(unit.id, { type: 1, size: 1 }, scene); break;
+        case 'tetrahedron':
+          mesh = MeshBuilder.CreatePolyhedron(unit.id, { type: 0, size: 1 }, scene); break;
+        case 'boss':
+          mesh = MeshBuilder.CreateTorusKnot(unit.id, { radius: 1, tube: 0.4 }, scene); break;
+        default:
+          mesh = MeshBuilder.CreateBox(unit.id, { size: baseSize }, scene);
+      }
+
+      // Apply companion scale
+      if (unitScale !== 1.0) {
+        mesh.scaling.setAll(unitScale);
       }
 
       mesh.position = new Vector3(unit.x || 0, 1, unit.z || 0);
@@ -111,6 +144,16 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       const mat = new StandardMaterial(`${unit.id}_mat`, scene);
       const hexColor = unit.isHero || unit.isSummon ? SCHOOL_COLORS[unit.school] : ENEMY_SCHOOL_COLORS[unit.school];
       mat.diffuseColor = Color3.FromHexString(hexColor);
+
+      // Emissive glow: 30% for companions (scale >= 1.5), 10% for standard units
+      const emissiveValues = SCHOOL_EMISSIVE[unit.school] ?? [0.2, 0.2, 0.2];
+      const glowIntensity = unitScale >= 1.5 ? 0.30 : 0.10;
+      mat.emissiveColor = new Color3(
+        emissiveValues[0] * glowIntensity,
+        emissiveValues[1] * glowIntensity,
+        emissiveValues[2] * glowIntensity,
+      );
+
       mesh.material = mat;
       mesh.convertToFlatShadedMesh();
 
@@ -366,7 +409,14 @@ export default function Battle({ onWin, onLose }: BattleProps) {
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col">
+    <div
+      className="relative w-full h-full flex flex-col"
+      style={{
+        backgroundImage: `url('${getBackground('battleArena')}')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
       <div className="absolute top-4 left-4 z-10 font-mono text-white text-xl drop-shadow-md">
         Player Mana: {playerMana} / {maxPlayerMana}
       </div>

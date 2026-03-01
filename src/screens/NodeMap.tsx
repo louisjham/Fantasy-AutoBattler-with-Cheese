@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useGameStore } from '../store';
 import { FloorNode } from '../types';
+import { getBackground } from '../utils/assetHelper';
 
 interface NodeMapProps {
   onNodeSelect: (type: string) => void;
@@ -40,15 +41,18 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
     setShowRestModal(false);
   };
 
-  const getNodeColor = (type: string) => {
+  const getNodeStyle = (type: string): { color: string; icon: string; scale?: number } => {
     switch (type) {
-      case 'combat': return '#FF4422';
-      case 'elite': return '#FF8800';
-      case 'shop': return '#FFCC00';
-      case 'event': return '#2244FF';
-      case 'rest': return '#33AA44';
-      case 'boss': return '#9922CC';
-      default: return '#FFFFFF';
+      case 'combat': return { color: '#C0392B', icon: '\u2694' };
+      case 'elite': return { color: '#E74C3C', icon: '\u2620' };
+      case 'boss': return { color: '#7B241C', icon: '\uD83D\uDC80', scale: 1.3 };
+      case 'shop': return { color: '#F4D03F', icon: '\u2605' };
+      case 'event': return { color: '#8E44AD', icon: '?' };
+      case 'rest': return { color: '#27AE60', icon: '\u2665' };
+      case 'treasure': return { color: '#F4D03F', icon: '\u2605' };
+      case 'mystery': return { color: '#8E44AD', icon: '?' };
+      case 'start': return { color: '#2E86C1', icon: '\u25B6' };
+      default: return { color: '#FFFFFF', icon: '?' };
     }
   };
 
@@ -58,7 +62,16 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
   currentNodeMap.forEach(n => nodesByDepth[n.depth].push(n));
 
   return (
-    <div className="w-full h-full min-h-[600px] bg-[#0D0D0D] relative flex flex-col items-center p-6 font-sans overflow-y-auto">
+    <div
+      className="w-full h-full min-h-[600px] relative flex flex-col items-center p-6 font-sans overflow-y-auto"
+      style={{
+        backgroundImage: `url('${getBackground('nodeMap')}')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      {/* Dark overlay so node UI stays readable */}
+      <div className="absolute inset-0 bg-black/65 pointer-events-none" />
       <div className="text-center mb-8 z-10">
         <h2 className="text-2xl text-white tracking-widest" style={{ fontFamily: "'Press Start 2P', monospace" }}>
           FLOOR {floor}
@@ -114,7 +127,8 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
               const isAvailable = availableNodeIds.includes(node.id);
               const isCurrent = currentNode?.id === node.id;
               const isLocked = !node.completed && !isAvailable;
-              const color = getNodeColor(node.type);
+              const { color, icon, scale: nodeTypeScale } = getNodeStyle(node.type);
+              const isBoss = node.type === 'boss';
 
               return (
                 <div
@@ -122,39 +136,48 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
                   onClick={() => handleNodeClick(node)}
                   className={`relative flex items-center justify-center w-12 h-12 transition-all duration-300 ${isAvailable ? 'cursor-pointer hover:scale-110' : ''}`}
                   style={{
-                    opacity: node.completed ? 0.5 : isLocked ? 0.2 : 1,
-                    transform: isCurrent ? 'scale(1.2)' : 'scale(1)',
-                    animation: isAvailable && !isCurrent ? 'pulse 2s infinite' : 'none'
+                    opacity: node.completed ? 0.4 : isLocked ? 0.2 : 1,
+                    filter: isLocked ? 'grayscale(1)' : 'none',
+                    transform: isCurrent
+                      ? `scale(${(nodeTypeScale ?? 1) * 1.2})`
+                      : `scale(${nodeTypeScale ?? 1})`,
+                    animation: isCurrent ? 'nodePulse 1.5s ease-in-out infinite' : 'none',
                   }}
                 >
-                  {/* Hexagon shape */}
+                  {/* Hexagon background */}
                   <div
                     className="absolute inset-0"
                     style={{
                       backgroundColor: '#1A1A1A',
                       clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
                       border: `2px solid ${color}`,
-                      boxShadow: isCurrent ? `0 0 15px ${color}` : 'none'
+                      boxShadow: isCurrent ? `0 0 20px ${color}, 0 0 6px ${color}80` : isAvailable ? `0 0 8px ${color}50` : 'none',
                     }}
                   />
 
-                  {/* Inner color fill based on type */}
+                  {/* Inner tinted fill */}
                   <div
                     className="absolute inset-1"
                     style={{
                       backgroundColor: color,
                       clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
-                      opacity: 0.2
+                      opacity: isCurrent ? 0.35 : 0.15,
                     }}
                   />
 
-                  {/* Icon */}
-                  <span className="z-10 text-xs font-bold" style={{ color }}>
-                    {node.type === 'boss' ? '☠️' : node.type.substring(0, 1).toUpperCase()}
-                  </span>
+                  {/* Node icon */}
+                  {!node.completed && (
+                    <span
+                      className="z-10 font-bold select-none"
+                      style={{ color, fontSize: isBoss ? '18px' : '13px' }}
+                    >
+                      {icon}
+                    </span>
+                  )}
 
+                  {/* Completed checkmark */}
                   {node.completed && (
-                    <div className="absolute inset-0 flex items-center justify-center z-20 text-white text-xl">
+                    <div className="absolute inset-0 flex items-center justify-center z-20 text-zinc-500 text-lg">
                       ✓
                     </div>
                   )}
@@ -194,6 +217,11 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
           0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
           70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
           100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+        @keyframes nodePulse {
+          0%   { opacity: 1; }
+          50%  { opacity: 0.6; }
+          100% { opacity: 1; }
         }
       `}</style>
     </div>

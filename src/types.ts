@@ -20,7 +20,7 @@ export type WeaponEffect =
   | 'Flaming' | 'Poisoned' | 'Vampiric' | 'Thundering'
   | 'Cursed' | 'Frozen' | 'Shadowforged' | 'Blessed';
 
-export type MeshType = 'box' | 'octahedron' | 'tetrahedron' | 'cylinder' | 'boss';
+export type MeshType = 'box' | 'octahedron' | 'tetrahedron' | 'cylinder' | 'boss' | 'cone' | 'torus' | 'sphere';
 
 export type PassiveTrigger =
   | 'on_hit' | 'on_kill' | 'on_death' | 'on_spawn'
@@ -107,6 +107,7 @@ export interface Unit {
   isSummon: boolean;
   spriteColor: string;
   meshType: MeshType;
+  scale?: number;            // optional mesh scale multiplier (e.g. 1.5 for companions)
   x?: number;            // runtime position in Babylon scene
   z?: number;            // runtime position in Babylon scene
   weapon: Weapon | null;
