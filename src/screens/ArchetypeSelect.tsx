@@ -314,7 +314,6 @@ export default function ArchetypeSelect({ onSelect }: ArchetypeSelectProps) {
                   {perk.synergy && (
                     <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{perk.synergy}</p>
                   )}
-                  <div className="text-xs text-blue-400 mt-1 italic pt-2 border-t border-zinc-800">{perk.synergy}</div>
                 </div>
               );
             })}
