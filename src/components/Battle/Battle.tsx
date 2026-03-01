@@ -176,29 +176,51 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         companionPulseRegistry.push({ mat, base: emissiveValues });
       }
 
+      // Registry for low-HP pulse (< 30%): hpBar reference + current percent
+      type HpPulseEntry = { bar: Rectangle; percent: number };
+      const lowHpBars: Map<string, HpPulseEntry> = new Map();
+
       unitMeshes[unit.id] = mesh;
 
-      // HP Bar
+      // HP Bar — 4px height, green start, linked above the mesh
       const rect = new Rectangle();
-      rect.width = "40px";
-      rect.height = "8px";
-      rect.background = "red";
-      rect.thickness = 1;
-      rect.color = "black";
+      rect.width = "44px";
+      rect.height = "4px";
+      rect.background = "transparent";
+      rect.thickness = 0;
       advancedTexture.addControl(rect);
       rect.linkWithMesh(mesh);
-      rect.linkOffsetY = -30;
+      rect.linkOffsetY = -28;
 
       const hpBar = new Rectangle();
       hpBar.width = "100%";
       hpBar.height = "100%";
-      hpBar.background = "green";
+      hpBar.background = '#27AE60'; // green start
       hpBar.thickness = 0;
       hpBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
       rect.addControl(hpBar);
 
       unitUIs[unit.id] = { container: rect, hpBar };
     };
+
+    // Low-HP pulse: flickers red bars between 100% and 70% brightness at ~1 Hz
+    scene.onBeforeRenderObservable.add(() => {
+      if (lowHpBars.size === 0) return;
+      const t = Date.now() / 1000;
+      const pulse = 0.85 + Math.sin(t * Math.PI * 2) * 0.15; // oscillates 0.7..1.0
+      const r = Math.round(192 * pulse);
+      const g = Math.round(57 * pulse);
+      const b = Math.round(43 * pulse);
+      const pulseColor = `rgb(${r},${g},${b})`;
+      for (const [, entry] of lowHpBars) {
+        if (entry.percent < 0.3) {
+          entry.bar.background = pulseColor;
+        }
+      }
+    });
+
+    // Make lowHpBars accessible to the attack handler via closure ref
+    const lowHpBarsRef = lowHpBars;
 
     // Companion glow pulse: oscillates emissive between 20% and 38% intensity
     scene.onBeforeRenderObservable.add(() => {
