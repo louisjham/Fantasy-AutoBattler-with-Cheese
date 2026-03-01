@@ -15,33 +15,27 @@ const SCHOOL_COLORS: Record<MagicSchool, string> = {
   [MagicSchool.Life]: '#FFCC00'
 };
 
-/** Derive a human-friendly multiplier label from the synergy effect value.
- *  e.g. fire_1 value=15 → "+15%" | arcane_1 value=20 → "+20%"
- *  For effects that aren't additive %, we show the tier-based flat bonus.
+/** Format the synergy bonus badge text.
+ *  Uses the synergy value as the percent bonus (e.g. value=15 → "+15%").
+ *  For non-percentage effects (value=0), falls back to a short label.
+ *  Returns null if there is nothing meaningful to display.
  */
-function getSynergyLabel(syn: ActiveSynergy): string {
-  // Effects that express a direct % bonus or flat value we can display
-  const { effect, value, tier } = syn;
+function getSynergyLabel(syn: ActiveSynergy): string | null {
+  const { effect, value } = syn;
 
-  // Tier-based representative bonus labels
-  if (effect === 'fire_1') return `+${value}% Burn`;
-  if (effect === 'fire_2') return `Burn Spreads`;
-  if (effect === 'fire_3') return `Burn Explode`;
-  if (effect === 'death_1') return `Revive @${value}%`;
-  if (effect === 'death_2') return `+${value} Mana/Death`;
-  if (effect === 'death_3') return `+${value}% Skeletal`;
-  if (effect === 'nature_1') return `+${value} HP/tick`;
-  if (effect === 'nature_2') return `-${value} Summon Cost`;
-  if (effect === 'nature_3') return `Full Heal`;
-  if (effect === 'arcane_1') return `+${value}% Spell`;
-  if (effect === 'arcane_2') return `+${value}% Regen`;
-  if (effect === 'arcane_3') return `${value}% Refund`;
-  if (effect === 'life_1') return `+${value} Max HP`;
-  if (effect === 'life_2') return `Free Heal`;
-  if (effect === 'life_3') return `Immortal`;
+  // Additive percent-value effects — show as "+N%"
+  if (value > 0) {
+    return `+${value}%`;
+  }
 
-  // Fallback: show tier
-  return `Tier ${tier}`;
+  // Non-numeric special effects — short static labels
+  if (effect === 'fire_2') return 'Burn Spreads';
+  if (effect === 'fire_3') return 'Burn Explode';
+  if (effect === 'nature_3') return 'Full Heal';
+  if (effect === 'life_2') return 'Free Heal';
+  if (effect === 'life_3') return 'Immortal';
+
+  return null; // nothing to show
 }
 
 export default function SynergyHUD({ synergies }: SynergyHUDProps) {
@@ -66,7 +60,6 @@ export default function SynergyHUD({ synergies }: SynergyHUDProps) {
       {synergies.map(syn => {
         const color = SCHOOL_COLORS[syn.school];
         const isPulsing = triggerPulses[syn.school];
-        const label = getSynergyLabel(syn);
 
         return (
           <div
@@ -88,17 +81,23 @@ export default function SynergyHUD({ synergies }: SynergyHUDProps) {
               </span>
             </div>
 
-            {/* Bonus label — the key new bit */}
-            <div
-              className="text-[10px] font-bold px-2 py-0.5 rounded self-start mb-1"
-              style={{
-                backgroundColor: `${color}30`,
-                color,
-                border: `1px solid ${color}60`
-              }}
-            >
-              {label}
-            </div>
+            {/* Bonus badge — school name + percent bonus; hidden if no numeric bonus */}
+            {(() => {
+              const label = getSynergyLabel(syn);
+              if (!label) return null;
+              return (
+                <div
+                  className="text-[10px] font-bold px-2 py-0.5 rounded self-start mb-1"
+                  style={{
+                    backgroundColor: `${color}30`,
+                    color,
+                    border: `1px solid ${color}60`
+                  }}
+                >
+                  {syn.school} {label}
+                </div>
+              );
+            })()}
 
             {/* Tier dots */}
             <div className="flex gap-1 mt-1">
