@@ -102,6 +102,10 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     const unitMeshes: Record<string, AbstractMesh> = {};
     const unitUIs: Record<string, { container: Rectangle, hpBar: Rectangle }> = {};
 
+    // Low-HP pulse registry: unitId → { hpBar rect, current hp percent }
+    type HpPulseEntry = { bar: Rectangle; percent: number };
+    const lowHpBars: Map<string, HpPulseEntry> = new Map();
+
     // School emissive color map (matches MagicSchool enum values + extras)
     const SCHOOL_EMISSIVE: Record<string, [number, number, number]> = {
       Fire: [0.75, 0.22, 0.17],
@@ -176,10 +180,6 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         companionPulseRegistry.push({ mat, base: emissiveValues });
       }
 
-      // Registry for low-HP pulse (< 30%): hpBar reference + current percent
-      type HpPulseEntry = { bar: Rectangle; percent: number };
-      const lowHpBars: Map<string, HpPulseEntry> = new Map();
-
       unitMeshes[unit.id] = mesh;
 
       // HP Bar — 4px height, green start, linked above the mesh
@@ -219,8 +219,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       }
     });
 
-    // Make lowHpBars accessible to the attack handler via closure ref
-    const lowHpBarsRef = lowHpBars;
+
 
     // Companion glow pulse: oscillates emissive between 20% and 38% intensity
     scene.onBeforeRenderObservable.add(() => {
@@ -324,13 +323,19 @@ export default function Battle({ onWin, onLose }: BattleProps) {
 
       if (targetMesh) {
         showDamageNumber(targetMesh, damage, false, target.isHero || target.isSummon);
-        // Update HP bar with dynamic color
+        // Update HP bar width + color (green > 60%, orange 30-60%, red < 30%)
         if (unitUIs[target.id]) {
           const percent = Math.max(0, target.stats.hp / target.stats.maxHp);
           unitUIs[target.id].hpBar.width = `${percent * 100}%`;
-          // Color: green > 60%, orange 30-60%, red < 30%
-          const hpColor = percent > 0.6 ? '#27AE60' : percent > 0.3 ? '#E67E22' : '#C0392B';
-          unitUIs[target.id].hpBar.background = hpColor;
+          if (percent >= 0.3) {
+            // Solid color — deregister from pulse if previously registered
+            lowHpBars.delete(target.id);
+            const hpColor = percent > 0.6 ? '#27AE60' : '#E67E22';
+            unitUIs[target.id].hpBar.background = hpColor;
+          } else {
+            // Below 30% — register for red pulse
+            lowHpBars.set(target.id, { bar: unitUIs[target.id].hpBar, percent });
+          }
         }
       }
     };
@@ -351,6 +356,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
             advancedTexture.removeControl(unitUIs[unit.id].container);
             delete unitUIs[unit.id];
           }
+          lowHpBars.delete(unit.id);
         }, delay);
       } else {
         // Mesh already gone — clean up immediately
@@ -362,6 +368,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
           advancedTexture.removeControl(unitUIs[unit.id].container);
           delete unitUIs[unit.id];
         }
+        lowHpBars.delete(unit.id);
       }
 
       if (unit.isHero || unit.isSummon) {
