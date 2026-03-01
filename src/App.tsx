@@ -43,7 +43,7 @@ export default function App() {
 
   const handleNodeSelect = (type: string) => {
     if (type === 'shop') setCurrentScreen('Shop');
-    else if (type === 'event') setCurrentScreen('Event');
+    else if (type === 'event' || type === 'mystery') setCurrentScreen('Event');
     else setCurrentScreen('PreBattleConjure');
   };
 

@@ -21,6 +21,10 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
     availableNodeIds = currentNode.nextNodes || [];
   }
 
+  // Node types that are completed immediately on click (no battle required).
+  // Combat / elite / boss nodes are completed by PostBattle after the fight.
+  const INSTANT_COMPLETE_TYPES = new Set(['event', 'mystery', 'shop', 'treasure']);
+
   const handleNodeClick = (node: FloorNode) => {
     if (node.completed) return;
     if (!availableNodeIds.includes(node.id)) return;
@@ -30,6 +34,10 @@ export default function NodeMap({ onNodeSelect }: NodeMapProps) {
     if (node.type === 'rest') {
       setShowRestModal(true);
     } else {
+      // Mark non-combat nodes completed immediately so they cannot be re-entered
+      if (INSTANT_COMPLETE_TYPES.has(node.type)) {
+        completeNode(node.id);
+      }
       onNodeSelect(node.type);
     }
   };
