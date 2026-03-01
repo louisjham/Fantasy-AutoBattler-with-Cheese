@@ -7,6 +7,7 @@ import type React from 'react';
 // ─── SCHOOL FALLBACK COLORS ───────────────────────────────────────────────────
 // Used when an image asset is missing — matches each school's theme color
 export const SCHOOL_COLORS: Record<string, string> = {
+    // lowercase (legacy / assetHelper internal use)
     fire: '#C0392B',
     ice: '#5DADE2',
     lightning: '#F4D03F',
@@ -16,6 +17,12 @@ export const SCHOOL_COLORS: Record<string, string> = {
     arcane: '#2E86C1',
     life: '#F0B27A',
     void: '#1A1A2E',
+    // PascalCase — matches MagicSchool enum values used in components
+    Fire: '#C0392B',
+    Nature: '#27AE60',
+    Death: '#6C3483',
+    Arcane: '#2E86C1',
+    Life: '#F0B27A',
 }
 
 // ─── ARCHETYPE PORTRAITS (512×512) ───────────────────────────────────────────

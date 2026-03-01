@@ -5,6 +5,7 @@ import { calculateSynergies, ActiveSynergy } from './SynergySystem';
 import { useGameStore } from '../store';
 import { PerkEngine } from './PerkEngine';
 import { SpellEngine } from './SpellEngine';
+import { scaleUnitStats } from '../data/enemyScaling';
 
 export interface StatusEffect {
   type: 'burning' | 'poisoned' | 'frozen' | 'stunned' | 'regen' | 'rooted';
@@ -50,24 +51,21 @@ export class CombatEngine {
     [MagicSchool.Life]: 0,
   };
 
+  // Scaling context — read once at construction so dynamic spawns use the same floor/difficulty
+  private currentFloor: number;
+  private difficulty: string;
   private playerMana: number = 0;
 
   constructor(playerUnits: Unit[], enemyUnits: Unit[]) {
-    // Deep copy to avoid mutating store state directly
+    const state = useGameStore.getState();
+    this.currentFloor = state.floor;
+    this.difficulty = state.difficulty;
+
+    // Deep copy to avoid mutating store state directly.
+    // ProceduralGen already applied floor × difficulty scaling to enemies from the
+    // node map, so we do NOT re-scale here — that would double the multiplier.
     this.playerUnits = playerUnits.map(u => ({ ...u, stats: { ...u.stats } }));
     this.enemyUnits = enemyUnits.map(u => ({ ...u, stats: { ...u.stats } }));
-
-    const difficulty = useGameStore.getState().difficulty;
-    if (difficulty !== 'normal') {
-      const mult = difficulty === 'easy' ? 0.75 : 1.25;
-      for (const e of this.enemyUnits) {
-        if (e.meshType === 'boss') {
-          e.stats.hp = Math.round(e.stats.hp * mult);
-          e.stats.maxHp = Math.round(e.stats.maxHp * mult);
-          e.stats.attack = Math.round(e.stats.attack * mult);
-        }
-      }
-    }
 
     this.playerSynergies = calculateSynergies(this.playerUnits);
 
@@ -126,6 +124,7 @@ export class CombatEngine {
     this.isRunning = true;
     this.tempStatModifiers.clear();
     PerkEngine.applyCombatStartPerks(this);
+    this.applyEnemyBattleStartPassives();
     this.intervalId = setInterval(() => this.tick(), TICK_MS) as unknown as number;
   }
 
@@ -137,6 +136,134 @@ export class CombatEngine {
     this.isRunning = false;
     this.originalMaxHp.clear();
     globalEventBus.off('spell:cast', this.handleSpellCast);
+  }
+
+  // ─── Task 2 — Enemy perk processor ─────────────────────────────────────────
+  /** Process one passive effect on `unit` in context of an event trigger. */
+  private processEnemyPassive(
+    unit: Unit,
+    effectName: string,
+    value: number,
+    trigger: string,
+    context?: { target?: Unit; attacker?: Unit; damageDealt?: number }
+  ): void {
+    // on_tick effects
+    if (trigger === 'on_tick') {
+      if (effectName === 'enemy_regen_5hp' && unit.stats.hp > 0) {
+        unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + value);
+      }
+      if (effectName === 'enemy_pack_tactics') {
+        // +value attack per living ally (enemy side)
+        const aliveAllies = this.enemyUnits.filter(e => e.id !== unit.id && e.stats.hp > 0).length;
+        const mods = this.tempStatModifiers.get(unit.id) || {};
+        mods.attack = aliveAllies * value;
+        this.tempStatModifiers.set(unit.id, mods);
+      }
+      if (effectName === 'enemy_fear_aura') {
+        // Reduce all player attack by value each tick (additive)
+        for (const p of this.playerUnits) {
+          if (p.stats.hp > 0) {
+            const mods = this.tempStatModifiers.get(p.id) || {};
+            mods.attack = Math.max(0, (mods.attack ?? p.stats.attack) - value);
+            this.tempStatModifiers.set(p.id, mods);
+          }
+        }
+      }
+    }
+
+    // on_hit: unit attacked a player unit
+    if (trigger === 'on_hit' && context?.target) {
+      const target = context.target;
+      if (effectName === 'enemy_burning_aura') {
+        this.addStatusEffect(target.id, { type: 'burning', damagePerTick: value, duration: 3, sourceUnitId: unit.id });
+      }
+      if (effectName === 'enemy_ignite_on_hit') {
+        this.addStatusEffect(target.id, { type: 'burning', damagePerTick: value, duration: 2, sourceUnitId: unit.id });
+      }
+      if (effectName === 'enemy_mana_burn') {
+        // Drain player mana
+        this.playerMana = Math.max(0, this.playerMana - value);
+      }
+    }
+
+    // on_damaged: unit was hit by a player
+    if (trigger === 'on_damaged' && context?.attacker) {
+      if (effectName === 'enemy_enrage_low_hp' && unit.stats.hp <= unit.stats.maxHp * (value / 100)) {
+        // +50% attack while enraged
+        const mods = this.tempStatModifiers.get(unit.id) || {};
+        if (!mods['enraged']) {
+          mods.attack = Math.floor(unit.stats.attack * 0.5);
+          mods['enraged'] = 1;
+          this.tempStatModifiers.set(unit.id, mods);
+        }
+      }
+      if (effectName === 'enemy_thorns') {
+        // Reflect value damage back to attacker
+        const attacker = context.attacker;
+        if (attacker.stats.hp > 0) {
+          attacker.stats.hp -= value;
+          globalEventBus.emit('unit:attacked', { attacker: unit, target: attacker, damage: value });
+          if (attacker.stats.hp <= 0) this.handleUnitDeath(attacker, unit.id);
+        }
+      }
+      if (effectName === 'enemy_arcane_reflect') {
+        // Reflect value% of damage back to all living player units
+        for (const p of this.playerUnits) {
+          if (p.stats.hp > 0) {
+            const reflectDmg = Math.floor((context.damageDealt ?? 0) * (value / 100));
+            if (reflectDmg > 0) {
+              p.stats.hp -= reflectDmg;
+              if (p.stats.hp <= 0) this.handleUnitDeath(p, unit.id);
+            }
+          }
+        }
+      }
+    }
+
+    // on_kill: unit killed a player
+    if (trigger === 'on_kill') {
+      if (effectName === 'enemy_soul_drain') {
+        unit.stats.hp = Math.min(unit.stats.maxHp, unit.stats.hp + value);
+      }
+    }
+
+    // on_death: unit is dying
+    if (trigger === 'on_death') {
+      if (effectName === 'enemy_undying' && !this.bossPhaseFlags[`undying_${unit.id}`]) {
+        this.bossPhaseFlags[`undying_${unit.id}`] = true;
+        unit.stats.hp = Math.floor(unit.stats.maxHp * (value / 100));
+      }
+    }
+
+    // battle_start: applied once at combat start
+    if (trigger === 'battle_start') {
+      if (effectName === 'enemy_fortify') {
+        unit.stats.defense += value;
+      }
+    }
+  }
+
+  /** Run all on_tick passives for every living enemy. Called once per tick. */
+  private processEnemyTickPassives(): void {
+    for (const e of this.enemyUnits) {
+      if (e.stats.hp <= 0) continue;
+      for (const passive of e.passives) {
+        if (passive.trigger === 'on_tick') {
+          this.processEnemyPassive(e, passive.effect, passive.value, 'on_tick');
+        }
+      }
+    }
+  }
+
+  /** Apply battle_start passives for enemies. Called from start(). */
+  applyEnemyBattleStartPassives(): void {
+    for (const e of this.enemyUnits) {
+      for (const passive of e.passives) {
+        if (passive.trigger === 'battle_start') {
+          this.processEnemyPassive(e, passive.effect, passive.value, 'battle_start');
+        }
+      }
+    }
   }
 
   private processWeaponEffect(attacker: Unit, target: Unit, damageDealt: number): void {
@@ -401,10 +528,13 @@ export class CombatEngine {
       } else if (bossMechanic === 'undying_legion') {
         if (!this.bossPhaseFlags['legionFired'] && activeBoss.stats.hp <= activeBoss.stats.maxHp * 0.5) {
           this.bossPhaseFlags['legionFired'] = true;
+          const skelBaseStats = { hp: 40, maxHp: 40, attack: 15, defense: 5, speed: 1, mana: 0, maxMana: 100 };
           for (let i = 0; i < 3; i++) {
             this.enemyUnits.push({
               id: `boss_skel_${Date.now()}_${i}`, name: 'Skeleton Warrior', school: MagicSchool.Death,
-              tier: 1, stats: { hp: 40, maxHp: 40, attack: 15, defense: 5, speed: 1, mana: 0, maxMana: 100 },
+              tier: 1,
+              // Scale dynamically-spawned skeletons to the current floor × difficulty
+              stats: scaleUnitStats(skelBaseStats, this.currentFloor, this.difficulty),
               passives: [], position: 4 as any, isHero: false, isSummon: false, spriteColor: '#888',
               meshType: 'box', weapon: null, armor: null, level: 1, xp: 0, subclass: null
             });
@@ -451,8 +581,82 @@ export class CombatEngine {
             this.bossImmuneSchool = topSchool[0] as MagicSchool;
           }
         }
+
+        // ── New named boss mechanics (Task 3) ──────────────────────────────────
+      } else if (bossMechanic === 'inferno_surge') {
+        this.bossSpecialTickCounter++;
+        // Telegraph on tick N, fire on tick N+1
+        if (!this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 4 === 1) {
+          this.bossPhaseFlags['surge_telegraphed'] = true;
+          globalEventBus.emit('boss:telegraph', { mechanic: 'inferno_surge', message: '⚠ Inferno Surge incoming!' });
+        } else if (this.bossPhaseFlags['surge_telegraphed'] && this.bossSpecialTickCounter % 4 === 2) {
+          this.bossPhaseFlags['surge_telegraphed'] = false;
+          this.playerUnits.forEach(u => {
+            const dmg = this.applyDamageToUnit(u, 20, false, MagicSchool.Fire);
+            globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
+            this.addStatusEffect(u.id, { type: 'burning', damagePerTick: 5, duration: 3, sourceUnitId: activeBoss.id });
+            if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
+          });
+        }
+
+      } else if (bossMechanic === 'root_prison') {
+        this.bossSpecialTickCounter++;
+        // Regen every tick via passive; Root Prison every 5 ticks
+        if (!this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
+          this.bossPhaseFlags['root_telegraphed'] = true;
+          globalEventBus.emit('boss:telegraph', { mechanic: 'root_prison', message: '⚠ Root Prison incoming!' });
+        } else if (this.bossPhaseFlags['root_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
+          this.bossPhaseFlags['root_telegraphed'] = false;
+          this.playerUnits.forEach(u => {
+            this.addStatusEffect(u.id, { type: 'rooted', damagePerTick: 0, duration: 2, sourceUnitId: activeBoss.id });
+          });
+        }
+
+      } else if (bossMechanic === 'soul_rend') {
+        this.bossSpecialTickCounter++;
+        if (!this.bossPhaseFlags['rend_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
+          this.bossPhaseFlags['rend_telegraphed'] = true;
+          globalEventBus.emit('boss:telegraph', { mechanic: 'soul_rend', message: '⚠ Soul Rend incoming!' });
+        } else if (this.bossPhaseFlags['rend_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
+          this.bossPhaseFlags['rend_telegraphed'] = false;
+          let totalDrained = 0;
+          this.playerUnits.forEach(u => {
+            if (u.stats.hp <= 0) return;
+            const drain = Math.floor(u.stats.hp * 0.20);
+            u.stats.hp -= drain;
+            totalDrained += drain;
+            globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: drain });
+            if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
+          });
+          if (totalDrained > 0) {
+            activeBoss.stats.hp = Math.min(activeBoss.stats.maxHp, activeBoss.stats.hp + totalDrained);
+          }
+        }
+
+      } else if (bossMechanic === 'mana_collapse') {
+        this.bossSpecialTickCounter++;
+        if (!this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 5 === 1) {
+          this.bossPhaseFlags['collapse_telegraphed'] = true;
+          globalEventBus.emit('boss:telegraph', { mechanic: 'mana_collapse', message: '⚠ Mana Collapse incoming!' });
+        } else if (this.bossPhaseFlags['collapse_telegraphed'] && this.bossSpecialTickCounter % 5 === 2) {
+          this.bossPhaseFlags['collapse_telegraphed'] = false;
+          const manaLost = this.playerMana;
+          const damageTaken = Math.floor(manaLost / 10) * 5;
+          this.playerMana = 0;
+          globalEventBus.emit('player:mana_gain', { amount: -manaLost }); // visual drain
+          if (damageTaken > 0) {
+            this.playerUnits.forEach(u => {
+              const dmg = this.applyDamageToUnit(u, damageTaken, false, MagicSchool.Arcane);
+              globalEventBus.emit('unit:attacked', { attacker: activeBoss, target: u, damage: dmg });
+              if (u.stats.hp <= 0) this.handleUnitDeath(u, activeBoss.id);
+            });
+          }
+        }
       }
     }
+
+    // Task 2 — process enemy on_tick passives (regen, pack tactics, fear)
+    this.processEnemyTickPassives();
 
     const allUnits = [...this.playerUnits, ...this.enemyUnits];
 
@@ -624,6 +828,24 @@ export class CombatEngine {
         // Weapon Effects Process
         this.processWeaponEffect(unit, target, damageDealt);
 
+        // Task 2 — enemy on_hit passives (when an enemy unit attacks a player)
+        if (!isPlayer) {
+          for (const passive of unit.passives) {
+            if (passive.trigger === 'on_hit') {
+              this.processEnemyPassive(unit, passive.effect, passive.value, 'on_hit', { target });
+            }
+          }
+        }
+
+        // Task 2 — enemy on_damaged passives (when a player attacks an enemy)
+        if (isPlayer) {
+          for (const passive of target.passives) {
+            if (passive.trigger === 'on_damaged') {
+              this.processEnemyPassive(target, passive.effect, passive.value, 'on_damaged', { attacker: unit, damageDealt });
+            }
+          }
+        }
+
         // Mana gains
         unit.stats.mana = Math.min(unit.stats.maxMana, unit.stats.mana + manaRegen);
         target.stats.mana = Math.min(target.stats.maxMana, target.stats.mana + 5);
@@ -659,7 +881,26 @@ export class CombatEngine {
         }
 
         if (target.stats.hp <= 0) {
-          this.handleUnitDeath(target, unit.id);
+          // Task 2 — enemy undying: check on_death passives BEFORE removing the unit
+          if (!target.isHero && !target.isSummon) {
+            for (const passive of target.passives) {
+              if (passive.trigger === 'on_death') {
+                this.processEnemyPassive(target, passive.effect, passive.value, 'on_death', {});
+                if (target.stats.hp > 0) break; // undying saved it — don't die
+              }
+            }
+          }
+          if (target.stats.hp <= 0) {
+            // Task 2 — enemy on_kill passive: enemy killed a player unit
+            if (isPlayer && !unit.isHero && !unit.isSummon) {
+              for (const passive of unit.passives) {
+                if (passive.trigger === 'on_kill') {
+                  this.processEnemyPassive(unit, passive.effect, passive.value, 'on_kill', {});
+                }
+              }
+            }
+            this.handleUnitDeath(target, unit.id);
+          }
         }
       } else if (!isRooted) {
         // Move

@@ -10,7 +10,8 @@ export interface BossDefinition {
     maxHpReductionCap?: number;
 }
 
-export const BOSSES: Record<number, BossDefinition> = {
+// ─── Legacy bosses (odd floors 1, 3, 5) ────────────────────────────────────
+const LEGACY_BOSSES: Record<number, BossDefinition> = {
     1: {
         unit: {
             id: 'boss_ashen_warlord', name: 'The Ashen Warlord', school: MagicSchool.Fire,
@@ -159,4 +160,146 @@ export const BOSSES: Record<number, BossDefinition> = {
         defeatText: 'The Sovereign fractures. Five seals reform as one. The Shattered Codex rewrites itself — complete.',
         maxHpReductionCap: 0.5
     }
+};
+
+// ─── Task 3 — Named bosses (even floors 2, 4, 6, 8) ─────────────────────────
+const NAMED_BOSSES: Record<number, BossDefinition> = {
+    2: {
+        unit: {
+            id: 'boss_ember_warden', name: 'The Ember Warden', school: MagicSchool.Fire,
+            tier: 4, level: 8, xp: 0,
+            stats: { hp: 225, maxHp: 225, attack: 20, defense: 10, speed: 1, mana: 0, maxMana: 100 },
+            passives: [
+                { trigger: 'on_hit', effect: 'enemy_ignite_on_hit', value: 6 },
+                { trigger: 'on_damaged', effect: 'enemy_enrage_low_hp', value: 30 },
+            ],
+            position: 5, isHero: false, isSummon: false, spriteColor: '#FF5500', meshType: 'boss',
+            weapon: null, armor: null, subclass: null
+        },
+        minions: [
+            {
+                id: 'eb_minion_1', name: 'Cinder Knight', school: MagicSchool.Fire, tier: 2, level: 4, xp: 0,
+                stats: { hp: 60, maxHp: 60, attack: 12, defense: 5, speed: 1, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_hit', effect: 'enemy_burning_aura', value: 3 }],
+                position: 4, isHero: false, isSummon: false, spriteColor: '#FF7700', meshType: 'box',
+                weapon: null, armor: null, subclass: null
+            },
+            {
+                id: 'eb_minion_2', name: 'Cinder Knight', school: MagicSchool.Fire, tier: 2, level: 4, xp: 0,
+                stats: { hp: 60, maxHp: 60, attack: 12, defense: 5, speed: 1, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_hit', effect: 'enemy_burning_aura', value: 3 }],
+                position: 6, isHero: false, isSummon: false, spriteColor: '#FF7700', meshType: 'box',
+                weapon: null, armor: null, subclass: null
+            },
+        ],
+        specialMechanic: 'inferno_surge',
+        mechanicDescription: 'Telegraph 1 tick before: Inferno Surge hits all units for 20 Fire dmg + Burning.',
+        introText: 'The Ember Warden watched the first cities burn. It did not weep. It laughed.',
+        defeatText: "The Warden's flame dims. The heat recedes. Floor 2 lies open.",
+    },
+    4: {
+        unit: {
+            id: 'boss_thornhide', name: 'Thornhide the Ancient', school: MagicSchool.Nature,
+            tier: 4, level: 16, xp: 0,
+            stats: { hp: 480, maxHp: 480, attack: 28, defense: 22, speed: 1, mana: 0, maxMana: 100 },
+            passives: [
+                { trigger: 'on_tick', effect: 'enemy_regen_5hp', value: 8 },
+                { trigger: 'on_damaged', effect: 'enemy_thorns', value: 5 },
+            ],
+            position: 5, isHero: false, isSummon: false, spriteColor: '#228833', meshType: 'boss',
+            weapon: null, armor: null, subclass: null
+        },
+        minions: [
+            {
+                id: 'th_minion_1', name: 'Living Briar', school: MagicSchool.Nature, tier: 3, level: 12, xp: 0,
+                stats: { hp: 110, maxHp: 110, attack: 18, defense: 14, speed: 1, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_tick', effect: 'enemy_regen_5hp', value: 5 }],
+                position: 4, isHero: false, isSummon: false, spriteColor: '#44AA44', meshType: 'box',
+                weapon: null, armor: null, subclass: null
+            },
+            {
+                id: 'th_minion_2', name: 'Living Briar', school: MagicSchool.Nature, tier: 3, level: 12, xp: 0,
+                stats: { hp: 110, maxHp: 110, attack: 18, defense: 14, speed: 1, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_tick', effect: 'enemy_regen_5hp', value: 5 }],
+                position: 6, isHero: false, isSummon: false, spriteColor: '#44AA44', meshType: 'box',
+                weapon: null, armor: null, subclass: null
+            },
+        ],
+        specialMechanic: 'root_prison',
+        mechanicDescription: 'Telegraph 1 tick before: Root Prison roots all your units for 2 ticks. Regen 8 HP/tick.',
+        introText: 'Thornhide does not move. It does not need to. The forest comes to it.',
+        defeatText: 'The ancient bark splits. Roots retract. The labyrinth yields.',
+    },
+    6: {
+        unit: {
+            id: 'boss_duskbane', name: 'Duskbane', school: MagicSchool.Death,
+            tier: 4, level: 24, xp: 0,
+            stats: { hp: 690, maxHp: 690, attack: 40, defense: 26, speed: 2, mana: 0, maxMana: 100 },
+            passives: [
+                { trigger: 'on_kill', effect: 'enemy_soul_drain', value: 25 },
+                { trigger: 'on_death', effect: 'enemy_undying', value: 25 },
+            ],
+            position: 5, isHero: false, isSummon: false, spriteColor: '#880099', meshType: 'boss',
+            weapon: null, armor: null, subclass: null
+        },
+        minions: [
+            {
+                id: 'db_minion_1', name: 'Soul Wraith', school: MagicSchool.Death, tier: 3, level: 18, xp: 0,
+                stats: { hp: 130, maxHp: 130, attack: 28, defense: 8, speed: 2, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_kill', effect: 'enemy_soul_drain', value: 10 }],
+                position: 4, isHero: false, isSummon: false, spriteColor: '#AA00CC', meshType: 'cylinder',
+                weapon: null, armor: null, subclass: null
+            },
+            {
+                id: 'db_minion_2', name: 'Soul Wraith', school: MagicSchool.Death, tier: 3, level: 18, xp: 0,
+                stats: { hp: 130, maxHp: 130, attack: 28, defense: 8, speed: 2, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_kill', effect: 'enemy_soul_drain', value: 10 }],
+                position: 6, isHero: false, isSummon: false, spriteColor: '#AA00CC', meshType: 'cylinder',
+                weapon: null, armor: null, subclass: null
+            },
+        ],
+        specialMechanic: 'soul_rend',
+        mechanicDescription: "Telegraph 1 tick before: Soul Rend drains 20% of each player unit's HP and heals Duskbane. Revives once at 25% HP.",
+        introText: 'Duskbane was once a hero. It remembers nothing of that life, save the hunger.',
+        defeatText: 'Duskbane dissolves into cold light. The marshes grow quiet. Floor 6 is yours.',
+    },
+    8: {
+        unit: {
+            id: 'boss_null_archon', name: 'The Null Archon', school: MagicSchool.Arcane,
+            tier: 4, level: 32, xp: 0,
+            stats: { hp: 990, maxHp: 990, attack: 55, defense: 32, speed: 2, mana: 0, maxMana: 100 },
+            passives: [
+                { trigger: 'on_cast', effect: 'enemy_spell_shield', value: 1 },
+                { trigger: 'on_damaged', effect: 'enemy_arcane_reflect', value: 8 },
+            ],
+            position: 5, isHero: false, isSummon: false, spriteColor: '#2244FF', meshType: 'boss',
+            weapon: null, armor: null, subclass: null
+        },
+        minions: [
+            {
+                id: 'na_minion_1', name: 'Null Sentry', school: MagicSchool.Arcane, tier: 4, level: 24, xp: 0,
+                stats: { hp: 180, maxHp: 180, attack: 36, defense: 18, speed: 2, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_hit', effect: 'enemy_mana_burn', value: 10 }],
+                position: 4, isHero: false, isSummon: false, spriteColor: '#4466FF', meshType: 'octahedron',
+                weapon: null, armor: null, subclass: null
+            },
+            {
+                id: 'na_minion_2', name: 'Null Sentry', school: MagicSchool.Arcane, tier: 4, level: 24, xp: 0,
+                stats: { hp: 180, maxHp: 180, attack: 36, defense: 18, speed: 2, mana: 0, maxMana: 100 },
+                passives: [{ trigger: 'on_hit', effect: 'enemy_mana_burn', value: 10 }],
+                position: 6, isHero: false, isSummon: false, spriteColor: '#4466FF', meshType: 'octahedron',
+                weapon: null, armor: null, subclass: null
+            },
+        ],
+        specialMechanic: 'mana_collapse',
+        mechanicDescription: 'Telegraph 1 tick before: Mana Collapse zeroes all player mana and deals 5 dmg per 10 mana lost. Absorbs first spell each battle.',
+        introText: 'The Null Archon erased its own name to become perfect. It serves no one.',
+        defeatText: "The Archon's null-field collapses. Mana floods back. The Codex's final lock shatters.",
+    },
+};
+
+// ─── Merged export ───────────────────────────────────────────────────────────
+export const BOSSES: Record<number, BossDefinition> = {
+    ...LEGACY_BOSSES,
+    ...NAMED_BOSSES,
 };

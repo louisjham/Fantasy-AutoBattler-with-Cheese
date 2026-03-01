@@ -11,6 +11,7 @@ import SynergyHUD from '../HUD/SynergyHUD';
 import SummonBar from '../HUD/SummonBar';
 import { ActiveSynergy } from '../../systems/SynergySystem';
 import { getBackground } from '../../utils/assetHelper';
+import { ParticleEngine, RuneEffect } from '../../systems/ParticleEngine';
 
 interface BattleProps {
   onWin: () => void;
@@ -33,7 +34,7 @@ export default function Battle({ onWin, onLose }: BattleProps) {
   const [activeUnitCount, setActiveUnitCount] = useState(0);
   const [onFieldIds, setOnFieldIds] = useState<Set<string>>(new Set());
   const maxPlayerMana = 100;
-  const { heroes, summonRoster, spellbook, formation, currentNodeMap, currentNodeIndex } = useGameStore();
+  const { heroes, summonRoster, spellbook, formation, currentNodeMap, currentNodeIndex, floor, selectedArchetype, selectedSubclass, difficulty } = useGameStore();
   const combatEngineRef = useRef<CombatEngine | null>(null);
 
   useEffect(() => {
@@ -92,23 +93,35 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     // Sprite Manager for particles
     const spriteManager = new SpriteManager('particleManager', 'https://playground.babylonjs.com/textures/player.png', 100, { width: 64, height: 64 }, scene);
 
+    // ─── Particle engine (visual effects, scene-owned) ─────────────────────────
+    const particleEngine = new ParticleEngine(scene);
+    // Active rune effects keyed by rune spell ID
+    const activeRuneEffects = new Map<string, RuneEffect>();
+
     // Mesh Dictionary
     const unitMeshes: Record<string, AbstractMesh> = {};
     const unitUIs: Record<string, { container: Rectangle, hpBar: Rectangle }> = {};
 
-    const createUnitMesh = (unit: Unit) => {
-      // School emissive color map
-      const SCHOOL_EMISSIVE: Record<string, [number, number, number]> = {
-        Fire: [0.75, 0.22, 0.17],
-        Nature: [0.15, 0.68, 0.38],
-        Death: [0.42, 0.20, 0.51],
-        Arcane: [0.18, 0.52, 0.76],
-        Life: [0.94, 0.70, 0.48],
-        ice: [0.36, 0.68, 0.87],
-        lightning: [0.95, 0.82, 0.25],
-        earth: [0.49, 0.40, 0.04],
-      };
+    // School emissive color map (matches MagicSchool enum values + extras)
+    const SCHOOL_EMISSIVE: Record<string, [number, number, number]> = {
+      Fire: [0.75, 0.22, 0.17],
+      Nature: [0.15, 0.68, 0.38],
+      Death: [0.42, 0.20, 0.51],
+      Arcane: [0.18, 0.52, 0.76],
+      Life: [0.94, 0.70, 0.48],
+      Ice: [0.36, 0.68, 0.87],
+      ice: [0.36, 0.68, 0.87],
+      Lightning: [0.95, 0.82, 0.25],
+      lightning: [0.95, 0.82, 0.25],
+      Earth: [0.49, 0.40, 0.04],
+      earth: [0.49, 0.40, 0.04],
+    };
 
+    // Registry for companion pulse animation: material + base emissive RGB
+    type PulseEntry = { mat: StandardMaterial; base: [number, number, number] };
+    const companionPulseRegistry: PulseEntry[] = [];
+
+    const createUnitMesh = (unit: Unit) => {
       let mesh;
       const baseSize = 1.5;
       const unitScale = unit.scale ?? 1.0;
@@ -145,9 +158,10 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       const hexColor = unit.isHero || unit.isSummon ? SCHOOL_COLORS[unit.school] : ENEMY_SCHOOL_COLORS[unit.school];
       mat.diffuseColor = Color3.FromHexString(hexColor);
 
-      // Emissive glow: 30% for companions (scale >= 1.5), 10% for standard units
+      // Emissive glow: companions (scale >= 1.5) get 30% base + pulsing; others get flat 10%
       const emissiveValues = SCHOOL_EMISSIVE[unit.school] ?? [0.2, 0.2, 0.2];
-      const glowIntensity = unitScale >= 1.5 ? 0.30 : 0.10;
+      const isCompanion = unitScale >= 1.5;
+      const glowIntensity = isCompanion ? 0.30 : 0.10;
       mat.emissiveColor = new Color3(
         emissiveValues[0] * glowIntensity,
         emissiveValues[1] * glowIntensity,
@@ -156,6 +170,11 @@ export default function Battle({ onWin, onLose }: BattleProps) {
 
       mesh.material = mat;
       mesh.convertToFlatShadedMesh();
+
+      // Register companion for pulsing glow animation
+      if (isCompanion) {
+        companionPulseRegistry.push({ mat, base: emissiveValues });
+      }
 
       unitMeshes[unit.id] = mesh;
 
@@ -180,6 +199,22 @@ export default function Battle({ onWin, onLose }: BattleProps) {
 
       unitUIs[unit.id] = { container: rect, hpBar };
     };
+
+    // Companion glow pulse: oscillates emissive between 20% and 38% intensity
+    scene.onBeforeRenderObservable.add(() => {
+      if (companionPulseRegistry.length === 0) return;
+      const t = Date.now() / 1000; // seconds
+      // sin oscillates -1..1; map to 0.20..0.38 intensity
+      const intensity = 0.29 + Math.sin(t * 2.0) * 0.09;
+      for (const entry of companionPulseRegistry) {
+        try { if (!entry.mat) continue; } catch (_) { continue; }
+        entry.mat.emissiveColor.set(
+          entry.base[0] * intensity,
+          entry.base[1] * intensity,
+          entry.base[2] * intensity,
+        );
+      }
+    });
 
     const showDamageNumber = (mesh: AbstractMesh, damage: number, isCrit: boolean, isEnemyDamage: boolean) => {
       const text = new TextBlock();
@@ -267,23 +302,44 @@ export default function Battle({ onWin, onLose }: BattleProps) {
 
       if (targetMesh) {
         showDamageNumber(targetMesh, damage, false, target.isHero || target.isSummon);
-        // Update HP bar
+        // Update HP bar with dynamic color
         if (unitUIs[target.id]) {
           const percent = Math.max(0, target.stats.hp / target.stats.maxHp);
           unitUIs[target.id].hpBar.width = `${percent * 100}%`;
+          // Color: green > 60%, orange 30-60%, red < 30%
+          const hpColor = percent > 0.6 ? '#27AE60' : percent > 0.3 ? '#E67E22' : '#C0392B';
+          unitUIs[target.id].hpBar.background = hpColor;
         }
       }
     };
 
     const handleDied = (payload: unknown) => {
       const { unit } = payload as { unit: Unit };
-      if (unitMeshes[unit.id]) {
-        unitMeshes[unit.id].dispose();
-        delete unitMeshes[unit.id];
-      }
-      if (unitUIs[unit.id]) {
-        advancedTexture.removeControl(unitUIs[unit.id].container);
-        delete unitUIs[unit.id];
+
+      // Effect 2 — death dissolve burst; delay actual mesh disposal so particles play
+      const meshPos = unitMeshes[unit.id]?.position;
+      if (meshPos) {
+        const delay = particleEngine.unitDeath(meshPos.clone(), unit.school);
+        setTimeout(() => {
+          if (unitMeshes[unit.id]) {
+            unitMeshes[unit.id].dispose();
+            delete unitMeshes[unit.id];
+          }
+          if (unitUIs[unit.id]) {
+            advancedTexture.removeControl(unitUIs[unit.id].container);
+            delete unitUIs[unit.id];
+          }
+        }, delay);
+      } else {
+        // Mesh already gone — clean up immediately
+        if (unitMeshes[unit.id]) {
+          unitMeshes[unit.id].dispose();
+          delete unitMeshes[unit.id];
+        }
+        if (unitUIs[unit.id]) {
+          advancedTexture.removeControl(unitUIs[unit.id].container);
+          delete unitUIs[unit.id];
+        }
       }
 
       if (unit.isHero || unit.isSummon) {
@@ -311,12 +367,85 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         }
       }
 
-      // Particle burst
-      const sprite = new Sprite("death", spriteManager);
-      sprite.position = new Vector3(unit.x || 0, 1, unit.z || 0);
-      sprite.playAnimation(0, 7, false, 100, () => {
-        sprite.dispose();
-      });
+      // Legacy sprite burst (kept as fallback — particle engine handles visual above)
+      try {
+        const sprite = new Sprite("death", spriteManager);
+        sprite.position = new Vector3(unit.x || 0, 1, unit.z || 0);
+        sprite.playAnimation(0, 7, false, 100, () => { sprite.dispose(); });
+      } catch (_) { /* spriteManager may not be ready */ }
+    };
+
+    // Effect 3 — synergy pulse: fires at the centroid of all living player units
+    const handleSynergyTrigger = (payload: unknown) => {
+      const { school } = payload as { school: string };
+      // Compute centroid of living player meshes
+      let cx = 0; let cy = 1; let cz = 0; let count = 0;
+      for (const [, mesh] of Object.entries(unitMeshes)) {
+        if (mesh && !mesh.isDisposed()) {
+          cx += mesh.position.x;
+          cy += mesh.position.y;
+          cz += mesh.position.z;
+          count++;
+        }
+      }
+      if (count > 0) { cx /= count; cz /= count; }
+      particleEngine.synergyPulse(new Vector3(cx, cy, cz), school);
+    };
+
+    // Effect 1 (spell hit) + Effect 4 (rune inscribe) — wired on spell:cast
+    const handleSpellCastParticles = (payload: unknown) => {
+      const sp = payload as { spell?: Spell };
+      if (!sp.spell) return;
+      const spell = sp.spell;
+
+      // Effect 1 — target hit burst
+      // Find the lowest-HP visible enemy mesh as the impact point
+      let impactPos: Vector3 | null = null;
+      let lowestHp = Infinity;
+      for (const [meshId, mesh] of Object.entries(unitMeshes)) {
+        // Enemy meshes (not hero/summon) — heuristic: ID does not contain known player prefixes
+        if (mesh && !mesh.isDisposed() && !meshId.includes('_hero')) {
+          if (mesh.position.x > 0) { // Enemy side is positive X
+            const hp = (mesh as any)._hp ?? lowestHp;
+            if (hp <= lowestHp) { lowestHp = hp; impactPos = mesh.position.clone(); }
+          }
+        }
+      }
+      // Fallback: just use the first enemy-side mesh position
+      if (!impactPos) {
+        for (const [, mesh] of Object.entries(unitMeshes)) {
+          if (mesh && !mesh.isDisposed() && mesh.position.x > 0) {
+            impactPos = mesh.position.clone();
+            break;
+          }
+        }
+      }
+      if (impactPos) {
+        particleEngine.spellHit(impactPos, spell.school);
+      }
+
+      // Effect 4 — rune inscribe (Runelord only rune spells)
+      const runeSpellIds: Record<string, 'power' | 'warding' | 'ending'> = {
+        'm_rune_of_power': 'power',
+        'm_rune_of_warding': 'warding',
+        'm_rune_of_ending': 'ending',
+      };
+      const runeType = runeSpellIds[spell.effect];
+      if (runeType) {
+        // Place rune at a slight random position around centre
+        const runePos = new Vector3(
+          (Math.random() - 0.5) * 6,
+          0,
+          (Math.random() - 0.5) * 6
+        );
+        const effect = particleEngine.runeInscribe(runePos, runeType);
+        activeRuneEffects.set(spell.id, effect);
+        // Auto-clean up after 8s in case of mega-burst miss
+        setTimeout(() => {
+          const e = activeRuneEffects.get(spell.id);
+          if (e) { e.system.stop(); e.emitterMesh.dispose(); activeRuneEffects.delete(spell.id); }
+        }, 8000);
+      }
     };
 
     const handleTick = (payload: unknown) => {
@@ -362,6 +491,8 @@ export default function Battle({ onWin, onLose }: BattleProps) {
     globalEventBus.on('player:mana_gain', handleManaGain);
     globalEventBus.on('battle:won', onWin);
     globalEventBus.on('battle:lost', onLose);
+    globalEventBus.on('synergy:trigger', handleSynergyTrigger);
+    globalEventBus.on('spell:cast', handleSpellCastParticles);
 
     engine.runRenderLoop(() => {
       scene.render();
@@ -380,6 +511,14 @@ export default function Battle({ onWin, onLose }: BattleProps) {
       globalEventBus.off('player:mana_gain', handleManaGain);
       globalEventBus.off('battle:won', onWin);
       globalEventBus.off('battle:lost', onLose);
+      globalEventBus.off('synergy:trigger', handleSynergyTrigger);
+      globalEventBus.off('spell:cast', handleSpellCastParticles);
+
+      // Clean up any lingering rune effects
+      for (const effect of activeRuneEffects.values()) {
+        try { effect.system.stop(); effect.emitterMesh.dispose(); } catch (_) { /* already disposed */ }
+      }
+      activeRuneEffects.clear();
 
       if (combatEngineRef.current) {
         combatEngineRef.current.stop();
@@ -417,8 +556,54 @@ export default function Battle({ onWin, onLose }: BattleProps) {
         backgroundPosition: 'center',
       }}
     >
-      <div className="absolute top-4 left-4 z-10 font-mono text-white text-xl drop-shadow-md">
-        Player Mana: {playerMana} / {maxPlayerMana}
+      {/* ── Battle Info Bar (Change 5) ──────────────────────────── */}
+      <div
+        className="flex items-center justify-between px-4 z-20 flex-shrink-0"
+        style={{
+          height: '36px',
+          background: 'rgba(0,0,0,0.75)',
+          backdropFilter: 'blur(4px)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: '10px',
+        }}
+      >
+        {/* Left: Floor */}
+        <span className="text-white font-bold">Floor {floor}</span>
+
+        {/* Centre: Archetype · Subclass */}
+        <span className="text-zinc-300">
+          {selectedArchetype ? selectedArchetype.charAt(0).toUpperCase() + selectedArchetype.slice(1) : 'Unknown'}
+          {selectedSubclass && (
+            <>
+              {' · '}
+              <span style={{ color: '#9b59b6' }}>
+                {selectedSubclass.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+              </span>
+            </>
+          )}
+        </span>
+
+        {/* Right: Difficulty badge */}
+        <span
+          className="font-bold text-white rounded px-2 py-0.5"
+          style={{
+            backgroundColor:
+              difficulty === 'hard' ? '#E67E22' :
+                difficulty === 'easy' ? '#27AE60' :
+                  '#2E86C1',
+            borderRadius: '4px',
+          }}
+        >
+          {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+        </span>
+      </div>
+
+      {/* ── Mana bar ──────────────────────────────────────────────── */}
+      <div className="absolute top-14 left-4 z-10 font-mono text-white text-xs drop-shadow-md"
+        style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '9px' }}
+      >
+        Mana: {playerMana} / {maxPlayerMana}
       </div>
 
       <SynergyHUD synergies={synergies} />
@@ -442,11 +627,24 @@ export default function Battle({ onWin, onLose }: BattleProps) {
               key={i}
               onClick={() => handleCastSpell(spell)}
               disabled={playerMana < spell.manaCost}
-              className="px-4 py-2 bg-zinc-900 border-2 rounded text-white hover:bg-zinc-800 disabled:opacity-50 transition-colors flex flex-col items-center"
-              style={{ borderColor: SCHOOL_COLORS[spell.school], fontFamily: "'Press Start 2P', monospace", fontSize: '10px' }}
+              className="relative bg-zinc-900 border-2 rounded text-white hover:bg-zinc-800 disabled:opacity-50 transition-colors flex flex-col items-center overflow-hidden"
+              style={{
+                borderColor: SCHOOL_COLORS[spell.school],
+                borderLeft: `4px solid ${SCHOOL_COLORS[spell.school]}`,
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: '10px',
+                minWidth: '70px',
+                padding: '6px 8px 20px',
+              }}
             >
-              <span>{spell.name}</span>
-              <span className="text-zinc-400 mt-1">{spell.manaCost} MP</span>
+              <span className="text-center leading-tight">{spell.name}</span>
+              {/* Mana badge — bottom-left */}
+              <div
+                className="absolute bottom-0 left-0 right-0 flex items-center justify-center text-white font-bold"
+                style={{ backgroundColor: '#2E86C1', fontSize: '9px', padding: '2px 0' }}
+              >
+                {spell.manaCost} MP
+              </div>
             </button>
           )) : (
             <div className="px-4 py-2 bg-zinc-900/80 border-2 border-zinc-700 rounded text-zinc-500" style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '10px' }}>
